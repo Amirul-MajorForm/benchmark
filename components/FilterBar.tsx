@@ -3,7 +3,15 @@
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import type { View } from "@/lib/benchmarks";
-import { type Filters, filtersToQuery } from "@/lib/filters";
+import { type Filters, filtersToQuery, parsePeriod } from "@/lib/filters";
+import { goalLabel, marketLabel, objectiveLabel, platformLabel } from "@/lib/labels";
+
+const LABELS: Partial<Record<keyof Filters, (v: string) => string>> = {
+  platform: platformLabel,
+  objective: objectiveLabel,
+  goal: goalLabel,
+  market: marketLabel,
+};
 
 type Props = { filters: Filters; options: View["options"] };
 
@@ -18,12 +26,20 @@ export function FilterBar({ filters, options }: Props) {
     startTransition(() => router.push(`/?${filtersToQuery(next)}`, { scroll: false }));
   };
 
+  // Keep the current choice visible even when no synced data has that value yet.
+  const withCurrent = (key: keyof Filters, opts: { value: string; label: string }[]) =>
+    !filters[key] || opts.some((o) => o.value === filters[key]) ? opts : [{ value: filters[key], label: LABELS[key]?.(filters[key]) ?? filters[key] }, ...opts];
+
+  const { years, quarters, months } = options.periods;
+  const missingPeriod =
+    filters.period && ![...years, ...quarters, ...months].some((o) => o.value === filters.period) ? filters.period : null;
+
   const select = (key: keyof Filters, label: string, opts: { value: string; label: string }[]) => (
     <label className="filter">
       <span>{label}</span>
       <select value={filters[key]} onChange={(e) => set({ [key]: e.target.value })}>
         <option value="">All</option>
-        {opts.map((o) => (
+        {withCurrent(key, opts).map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
           </option>
@@ -41,6 +57,7 @@ export function FilterBar({ filters, options }: Props) {
           <optgroup label="Years">
             {options.periods.years.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </optgroup>
+          {missingPeriod && <option value={missingPeriod}>{parsePeriod(missingPeriod)?.label ?? missingPeriod}</option>}
           <optgroup label="Quarters">
             {options.periods.quarters.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </optgroup>

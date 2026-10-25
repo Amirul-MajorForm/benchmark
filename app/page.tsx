@@ -57,7 +57,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
       {syncFailed && (
         <div className="banner" role="alert">
           <strong>Last sync failed{sync.latest?.finishedAt ? ` (${sgt(sync.latest.finishedAt)})` : ""}.</strong>{" "}
-          {sync.latest?.error} Showing data from the previous successful sync.
+          {sync.latest?.error} {sync.lastSuccessAt ? "Showing data from the previous successful sync." : "No data has been synced yet."}
         </div>
       )}
 

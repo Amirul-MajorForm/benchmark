@@ -125,12 +125,125 @@ function stringify(v: unknown): string {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Likely Run query paths, tried in order when the configured one 404s. */
+export const CANDIDATE_PATHS = [
+  "/teams/{teamId}/query",
+  "/data/query",
+  "/teams/{teamId}/data/query",
+  "/data/run-query",
+  "/teams/{teamId}/data/run-query",
+  "/data/run",
+  "/teams/{teamId}/data/run",
+  "/data/queries",
+  "/teams/{teamId}/data/queries",
+  "/teams/{teamId}/queries/run",
+  "/teams/{teamId}/run-query",
+  "/run-query",
+  "/query",
+  "/queries",
+  "/data",
+  "/teams/{teamId}/data",
+];
+
+const resolvedPaths = new Map<string, string>();
+
+/** POST paths from the server's OpenAPI spec that look like Run query, if it publishes one. */
+async function openApiCandidates(cfg: TmrConfig, log: (msg: string) => void): Promise<string[]> {
+  const origin = new URL(cfg.baseUrl).origin;
+  const basePath = new URL(cfg.baseUrl).pathname.replace(/\/$/, "");
+  const specUrls = ["/openapi.json", "/swagger.json", "/docs/openapi.json", "/docs/json"].flatMap((f) => [
+    cfg.baseUrl + f,
+    origin + f,
+  ]);
+  for (const url of specUrls) {
+    try {
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${cfg.apiKey}` }, signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) continue;
+      const spec = (await res.json()) as { paths?: Record<string, Record<string, { operationId?: string; summary?: string }>> };
+      if (!spec?.paths) continue;
+      const found = Object.entries(spec.paths)
+        .filter(([path, ops]) => ops.post && /query|run/i.test(`${path} ${ops.post.operationId ?? ""} ${ops.post.summary ?? ""}`))
+        .map(([path]) => (basePath && path.startsWith(basePath) ? path.slice(basePath.length) : path))
+        .map((path) => path.replace(/\{[^}]*team[^}]*\}/i, "{teamId}"));
+      log(`  TMR OpenAPI spec at ${url}: ${found.length ? found.join(", ") : "no run-query path"}`);
+      return found;
+    } catch {
+      // not JSON or not reachable: try the next location
+    }
+  }
+  return [];
+}
+
+/**
+ * Find the Run query endpoint: the configured TMR_QUERY_PATH, then the server's OpenAPI spec,
+ * then CANDIDATE_PATHS. A tiny one-day query is sent to each; 404/405 means the route is wrong.
+ * The answer is cached for the life of the process.
+ */
+export async function resolveQueryPath(
+  req: TmrRequest,
+  cfg: TmrConfig = configFromEnv(),
+  log: (msg: string) => void = console.log,
+): Promise<string> {
+  const cacheKey = `${cfg.baseUrl}|${cfg.queryPath}`;
+  const cached = resolvedPaths.get(cacheKey);
+  if (cached) return cached;
+
+  const day = req.query.dateRange.startDate;
+  const probe: TmrRequest = {
+    ...req,
+    accountIds: req.accountIds.slice(0, 1),
+    title: "endpoint check",
+    query: { dateRange: { startDate: day, endDate: day }, dimensions: ["year_month"], metrics: ["spend"], reportParams: { includeAllItems: true } },
+  };
+  const tried = new Map<string, number>();
+  const firstExisting = async (paths: string[]): Promise<string | null> => {
+    for (const path of paths) {
+      if (tried.has(path)) continue;
+      const url = queryUrl({ ...cfg, queryPath: path });
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${cfg.apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(buildBody(cfg, probe)),
+          signal: AbortSignal.timeout(cfg.timeoutMs),
+        });
+      } catch (err) {
+        throw new TmrError(`Could not reach Two Minutes at ${url}: ${(err as Error).message}`, undefined, true);
+      }
+      const text = (await res.text()).slice(0, 200);
+      if (res.status === 401 || res.status === 403) {
+        throw new TmrError(`TMR ${res.status}: the API key was rejected. Use an API key (not MCP) with scope data:read. ${text}`, res.status);
+      }
+      tried.set(path, res.status);
+      // 404/405 = no such route. Anything else (200, 400, 5xx...) means the route exists.
+      if (res.status !== 404 && res.status !== 405) return path;
+    }
+    return null;
+  };
+
+  let path = await firstExisting([cfg.queryPath]);
+  if (!path) {
+    path = await firstExisting([...(await openApiCandidates(cfg, log)), ...CANDIDATE_PATHS]);
+    if (path) log(`  TMR Run query endpoint found: ${path}. Set TMR_QUERY_PATH=${path} to skip this check.`);
+  }
+  if (!path) {
+    throw new TmrError(
+      `Could not find the Two Minutes Run query endpoint under ${cfg.baseUrl}. Tried (HTTP status): ` +
+        `${[...tried].map(([p, st]) => `${p} ${st}`).join(", ")}. Set TMR_QUERY_PATH to the path on the docs' Data > Run query page.`,
+    );
+  }
+  resolvedPaths.set(cacheKey, path);
+  return path;
+}
+
 export async function runQuery(
   req: TmrRequest,
   cfg: TmrConfig = configFromEnv(),
   log: (msg: string) => void = console.log,
 ): Promise<TmrTable> {
-  const url = queryUrl(cfg);
+  const queryPath = await resolveQueryPath(req, cfg, log);
+  const url = queryUrl({ ...cfg, queryPath });
   const body = JSON.stringify(buildBody(cfg, req));
   let lastErr: unknown;
   for (let attempt = 0; attempt <= cfg.retries; attempt++) {

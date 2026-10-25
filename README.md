@@ -33,15 +33,11 @@ With no API key, `npm run fixture:load` loads recorded Q2 2025 Two Minutes data 
 | `npm test` | Unit tests + brief §9 acceptance tests (needs a local Postgres `benchmarks_test` database) |
 | `ACCEPTANCE_LIVE=1 DATABASE_URL=... npm run test:acceptance` | Acceptance tests against a real synced DB, including the all-time spend check |
 
-## Before the first real sync: run the probe
+## Two Minutes endpoint
 
-The Two Minutes REST docs couldn't be reached from the build environment, so the endpoint path is configurable. The request body is the same shape as the MCP `run_query` payload the prototype used. Run this once with a real key:
+The Two Minutes REST docs couldn't be reached from the build environment, so the client finds the Run query endpoint itself. It tries `TMR_QUERY_PATH` first, then the server's OpenAPI spec if it publishes one, then a list of likely paths. A wrong path returns a fast 404, so this adds a second or two to the first call. The sync log prints the path it found; set `TMR_QUERY_PATH` to it to skip the check. If nothing matches, the error lists every path tried with its HTTP status.
 
-```bash
-TMR_API_KEY=... npm run tmr:probe
-```
-
-It tries `TMR_QUERY_PATH` and a few likely alternatives, with both raw and `fads_`-prefixed field ids. It then prints the `TMR_QUERY_PATH` / `TMR_FIELD_PREFIX` values to set. If none work, check the docs' **Data → Run query** page and set `TMR_QUERY_PATH` by hand. The key must be an **API** key with scope `data:read`; an MCP key will not work.
+The request body is the same shape as the MCP `run_query` payload the prototype used. `npm run tmr:probe` runs one tiny query (OATSIDE, June 2025) to check the key, the endpoint and the response shape. The key must be an **API** key with scope `data:read`; an MCP key will not work.
 
 ## Deploying on Railway
 
@@ -49,13 +45,13 @@ One repo, two services, one Postgres.
 
 1. **Postgres:** add the Railway Postgres plugin.
 2. **Web service:** deploy this repo. `railway.json` sets `npm start` (runs migrations, then `next start`) and a healthcheck on `/api/health`. Set the env vars below, with `DATABASE_URL=${{Postgres.DATABASE_URL}}`.
-3. **Cron service:** add a second service from the same repo. Under *Settings → Config-as-code*, set the file to `railway.cron.json`. That runs `npm run sync` on `0 19 * * *` (19:00 UTC = 03:00 SGT). Give it `DATABASE_URL` and the `TMR_*` variables.
+3. **Cron service:** add a second service from the same repo. Under *Settings → Config-as-code*, set the file to `railway.cron.json`. That runs `npm run sync` on `0 19 * * *` (19:00 UTC = 03:00 SGT). Give it `DATABASE_URL` and `TMR_API_KEY`.
 
 | Variable | Notes |
 |---|---|
 | `TMR_API_KEY` | Two Minutes → Settings → API keys, intended use **API**, scope `data:read` |
 | `TMR_TEAM_ID` | `019d0ca3-ce95-7387-a650-5e055605107a` |
-| `TMR_API_BASE`, `TMR_QUERY_PATH`, `TMR_FIELD_PREFIX` | From `npm run tmr:probe` |
+| `TMR_QUERY_PATH` | Optional; the sync finds it and logs it (see above). `TMR_API_BASE` and `TMR_FIELD_PREFIX` normally stay unset |
 | `DATABASE_URL` | Railway Postgres (`PGSSLMODE=require` if connecting over the public proxy) |
 | `BASIC_AUTH_PASSWORD` | Optional. When set, the whole app asks for one shared password (username `majorform`, or `BASIC_AUTH_USER`). Empty means open access |
 
