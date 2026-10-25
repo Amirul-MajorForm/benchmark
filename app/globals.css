@@ -90,6 +90,7 @@ h2 { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
 .top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .top-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; }
 .top-meta form { margin: 0; }
+.build-id { font-size: 11px; font-variant-numeric: tabular-nums; }
 .sync-control { display: inline-flex; align-items: center; gap: 8px; }
 
 .btn {

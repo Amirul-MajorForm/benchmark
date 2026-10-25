@@ -1,10 +1,9 @@
 /**
  * Two Minute Reports REST client.
  *
- * The request body mirrors the MCP `run_query` payload the prototype used
- * ({ teamId, connectors: [{ connectorId, currencyCode?, accountIds, queries: [{ title, query }] }] }).
- * Endpoint path and field naming are configurable because they could not be confirmed from
- * the build sandbox; `npm run tmr:probe` finds the working combination against the real API.
+ * The REST docs could not be reached from the build sandbox, so the endpoint is discovered
+ * (resolveQueryPath) and the body follows the format Two Minutes stores for dashboard widget
+ * queries (buildBody). `npm run tmr:probe` checks the whole setup against the real API.
  */
 
 export type TmrFilter = {
@@ -356,7 +355,7 @@ export async function runQuery(
     return await runQueryAt(queryPath, req, cfg, log);
   } catch (err) {
     // Prefixed field ids rejected (e.g. "Unknown metric fads_spend"): retry once with raw ids and remember.
-    const msg = (err as Error).message;
+    const msg = (err as Error).message.split(" (body keys sent")[0];
     if (!cfg.fieldPrefix && err instanceof TmrError && err.status === 400 && msg.includes(`${req.connectorId}_`) && !/accounts/i.test(msg)) {
       log(`  prefixed field ids rejected (${msg.slice(0, 160)}); retrying with raw ids`);
       const table = await runQueryAt(queryPath, req, { ...cfg, fieldPrefix: "none" }, log);
@@ -393,7 +392,8 @@ async function runQueryAt(queryPath: string, req: TmrRequest, cfg: TmrConfig, lo
       }, log);
       const text = await res.text();
       if (!res.ok) {
-        throw new TmrError(`TMR ${res.status} on POST ${queryPath}: ${text.slice(0, 400)}`, res.status, res.status >= 500);
+        const sent = res.status === 400 ? ` (body keys sent: ${Object.keys(JSON.parse(body)).join(", ")})` : "";
+        throw new TmrError(`TMR ${res.status} on POST ${queryPath}: ${text.slice(0, 400)}${sent}`, res.status, res.status >= 500);
       }
       const table = extractTable(JSON.parse(text), req);
       log(`  ${req.title} ${req.query.dateRange.startDate}..${req.query.dateRange.endDate}: ${table.rows.length} rows in ${((Date.now() - started) / 1000).toFixed(1)}s`);

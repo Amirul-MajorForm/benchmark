@@ -8,6 +8,9 @@ import { fmt, formatMetric } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
+// Railway sets RAILWAY_GIT_COMMIT_SHA, so the page shows which commit is live.
+const BUILD = (process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT_SHA ?? "").slice(0, 7);
+
 const sgt = (iso: string) =>
   new Date(iso).toLocaleString("en-SG", { timeZone: "Asia/Singapore", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) + " SGT";
 
@@ -50,6 +53,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         </div>
         <div className="top-meta">
           <span className="muted">Data last synced: {sync.lastSuccessAt ? sgt(sync.lastSuccessAt) : "never"}</span>
+          {BUILD && <span className="muted build-id" title="Running build (git commit)">Build {BUILD}</span>}
           <SyncButton running={sync.latest?.status === "running"} />
         </div>
       </header>
