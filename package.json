@@ -1,0 +1,36 @@
+{
+  "name": "media-benchmarks",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MajorForm Media Benchmarks: CPM, CPC, CTR, CPA and ROAS across every client, market and platform",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "tsx scripts/migrate.ts && next start -p ${PORT:-3000}",
+    "migrate": "tsx scripts/migrate.ts",
+    "sync": "tsx scripts/sync.ts",
+    "tmr:probe": "tsx scripts/tmr-probe.ts",
+    "fixture:load": "tsx scripts/load-fixture.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:acceptance": "node --import tsx --test tests/acceptance.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "dependencies": {
+    "next": "16.4.2",
+    "next-auth": "5.0.0-beta.32",
+    "pg": "8.16.3",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "tsx": "4.20.6"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.0",
+    "@types/pg": "8.15.5",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "typescript": "5.9.3"
+  }
+}

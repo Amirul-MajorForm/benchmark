@@ -1,0 +1,32 @@
+{
+  "_source": "Two Minutes run_query (MCP), connector fads, no currencyCode, 2025-01-01..2025-06-30 (half-year chunk), objective equals OUTCOME_SALES, all 32 enabled accounts, pulled 2026-10-25. Query 3b. Rows for Jan-Mar are trimmed here because the main fixture only covers Q2.",
+  "connectorResults": [{
+    "connectorId": "fads",
+    "results": [{
+      "title": "Meta purchases",
+      "data": {
+        "headers": ["Facebook Ads Account ID","Facebook Ads Campaign Objective","Facebook Ads Optimization goal","Facebook Ads Year month","Facebook Ads Amount spent","Facebook Ads Purchases (all)","Facebook Ads Purchases value (all)","Facebook Ads Purchases (all) (collab ads)","Facebook Ads Purchase value (all) (collab ads)"],
+        "rows": [
+          ["1001057058029561","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-Apr",499.13,"","",35,3662.92],
+          ["1001057058029561","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-May",500,"","",8,1091.74],
+          ["1001057058029561","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-Jun",195.48,"","",17,938.14],
+          ["1001057058029561","OUTCOME_SALES","Unknown Optimization Goal","2025-Apr",12353.22,"","",847,81856.09],
+          ["1001057058029561","OUTCOME_SALES","Unknown Optimization Goal","2025-May",5689.36,"","",724,58708.84],
+          ["1001057058029561","OUTCOME_SALES","Unknown Optimization Goal","2025-Jun",9515.26,"","",1099,85963.66],
+          ["1324603498206088","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-Apr",482049.52,"","",1167,767051],
+          ["1324603498206088","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-May",44916.78,"","",589,351729],
+          ["1324603498206088","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-Jun",25881.050000000003,"","",178,145038],
+          ["1437746287146983","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-Jun",4623839,"","",247,54584784],
+          ["186600104319744","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-May",128.86,1,"",5,121.4],
+          ["3517635831788796","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-May",85.31,"","",8,216.88],
+          ["674743694682068","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-Jun",754.11,"","",13,389.58],
+          ["674743694682068","OUTCOME_SALES","RETURN_ON_AD_SPEND","2025-Jun",1229.17,"","",51,1539.65],
+          ["764971328270854","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-Apr",2940.63,250,13201.11,"",""],
+          ["764971328270854","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-May",2475.32,109,6255.09,"",""],
+          ["764971328270854","OUTCOME_SALES","OFFSITE_CONVERSIONS","2025-Jun",1987.52,69,4530.92,"",""],
+          ["764971328270854","OUTCOME_SALES","RETURN_ON_AD_SPEND","2025-May",2972.11,29,1598.12,"",""]
+        ]
+      }
+    }]
+  }]
+}
