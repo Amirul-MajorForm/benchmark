@@ -1,39 +1,22 @@
-import { type NextFetchEvent, type NextRequest, NextResponse } from "next/server";
-import { auth, authMode } from "./auth";
+import { type NextRequest, NextResponse } from "next/server";
 
-const PUBLIC = [/^\/api\/auth(\/|$)/, /^\/api\/health$/, /^\/signin$/];
+/**
+ * Open access by default. Set BASIC_AUTH_PASSWORD (and optionally BASIC_AUTH_USER, default
+ * "majorform") to put the whole app behind one shared password.
+ */
+export default function proxy(req: NextRequest) {
+  const password = process.env.BASIC_AUTH_PASSWORD;
+  if (!password || req.nextUrl.pathname === "/api/health") return NextResponse.next();
 
-const googleGate = auth((req) => {
-  if (req.auth) return NextResponse.next();
-  if (req.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
-  const url = new URL("/signin", req.nextUrl.origin);
-  url.searchParams.set("callbackUrl", req.nextUrl.pathname + req.nextUrl.search);
-  return NextResponse.redirect(url);
-}) as unknown as (req: NextRequest, ev: NextFetchEvent) => Promise<Response>;
-
-function basicGate(req: NextRequest): Response {
-  const header = req.headers.get("authorization") ?? "";
-  const [scheme, encoded] = header.split(" ");
+  const [scheme, encoded] = (req.headers.get("authorization") ?? "").split(" ");
   if (scheme === "Basic" && encoded) {
     const [user, ...rest] = Buffer.from(encoded, "base64").toString().split(":");
-    const expectedUser = process.env.BASIC_AUTH_USER || "majorform";
-    if (user === expectedUser && rest.join(":") === process.env.BASIC_AUTH_PASSWORD) return NextResponse.next();
+    if (user === (process.env.BASIC_AUTH_USER || "majorform") && rest.join(":") === password) return NextResponse.next();
   }
   return new NextResponse("Authentication required", {
     status: 401,
     headers: { "WWW-Authenticate": 'Basic realm="Media Benchmarks"' },
   });
-}
-
-export default function proxy(req: NextRequest, ev: NextFetchEvent) {
-  if (PUBLIC.some((p) => p.test(req.nextUrl.pathname))) return NextResponse.next();
-  const mode = authMode();
-  if (mode === "google") return googleGate(req, ev);
-  if (mode === "basic") return basicGate(req);
-  if (process.env.NODE_ENV === "production") {
-    return new NextResponse("Sign-in is not configured. Set AUTH_GOOGLE_ID/AUTH_GOOGLE_SECRET or BASIC_AUTH_PASSWORD.", { status: 503 });
-  }
-  return NextResponse.next();
 }
 
 export const config = {

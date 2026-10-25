@@ -1,4 +1,3 @@
-import { signOut } from "@/auth";
 import { BreakdownTable } from "@/components/BreakdownTable";
 import { CpmChart } from "@/components/CpmChart";
 import { FilterBar } from "@/components/FilterBar";
@@ -6,7 +5,6 @@ import { SyncButton } from "@/components/SyncButton";
 import { buildView, loadFacts, loadSyncStatus, type Tile, type View } from "@/lib/benchmarks";
 import { parseFilters } from "@/lib/filters";
 import { fmt, formatMetric } from "@/lib/format";
-import { getViewer } from "@/lib/viewer";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +36,7 @@ function TileCard({ tile, previous }: { tile: Tile; previous: View["previous"] }
 
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const filters = parseFilters(await searchParams);
-  const [viewer, sync] = await Promise.all([getViewer(), loadSyncStatus()]);
+  const sync = await loadSyncStatus();
   const facts = await loadFacts(sync.lastSuccessAt);
   const view = buildView(facts, filters);
   const syncFailed = sync.latest?.status === "failed";
@@ -52,21 +50,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         </div>
         <div className="top-meta">
           <span className="muted">Data last synced: {sync.lastSuccessAt ? sgt(sync.lastSuccessAt) : "never"}</span>
-          {viewer.isAdmin && <SyncButton running={sync.latest?.status === "running"} />}
-          {viewer.mode === "google" && (
-            <form
-              action={async () => {
-                "use server";
-                await signOut({ redirectTo: "/signin" });
-              }}
-            >
-              <button className="btn btn-quiet" type="submit" title={viewer.email ?? undefined}>Sign out</button>
-            </form>
-          )}
+          <SyncButton running={sync.latest?.status === "running"} />
         </div>
       </header>
 
-      {viewer.isAdmin && syncFailed && (
+      {syncFailed && (
         <div className="banner" role="alert">
           <strong>Last sync failed{sync.latest?.finishedAt ? ` (${sgt(sync.latest.finishedAt)})` : ""}.</strong>{" "}
           {sync.latest?.error} Showing data from the previous successful sync.

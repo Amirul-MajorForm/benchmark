@@ -8,7 +8,7 @@ A nightly job copies monthly Meta data from Two Minute Reports into Postgres. Th
 Railway cron (03:00 SGT) ── npm run sync ──► Two Minute Reports REST API
                                    │          (half-year chunks, retries)
                                    ▼
-                             Railway Postgres  ◄── Next.js app (read-only) ◄── Google sign-in (@majorform.co)
+                             Railway Postgres  ◄── Next.js app (read-only)
 ```
 
 ---
@@ -50,7 +50,6 @@ One repo, two services, one Postgres.
 1. **Postgres:** add the Railway Postgres plugin.
 2. **Web service:** deploy this repo. `railway.json` sets `npm start` (runs migrations, then `next start`) and a healthcheck on `/api/health`. Set the env vars below, with `DATABASE_URL=${{Postgres.DATABASE_URL}}`.
 3. **Cron service:** add a second service from the same repo. Under *Settings → Config-as-code*, set the file to `railway.cron.json`. That runs `npm run sync` on `0 19 * * *` (19:00 UTC = 03:00 SGT). Give it `DATABASE_URL` and the `TMR_*` variables.
-4. **Google sign-in:** in Google Cloud Console, create an OAuth client (Web). Add `https://<your-domain>/api/auth/callback/google` as a redirect URI and set `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`. Generate `AUTH_SECRET` with `npx auth secret` or `openssl rand -base64 32`.
 
 | Variable | Notes |
 |---|---|
@@ -58,12 +57,9 @@ One repo, two services, one Postgres.
 | `TMR_TEAM_ID` | `019d0ca3-ce95-7387-a650-5e055605107a` |
 | `TMR_API_BASE`, `TMR_QUERY_PATH`, `TMR_FIELD_PREFIX` | From `npm run tmr:probe` |
 | `DATABASE_URL` | Railway Postgres (`PGSSLMODE=require` if connecting over the public proxy) |
-| `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | Auth.js |
-| `ALLOWED_EMAIL_DOMAIN` | `majorform.co`: only verified Google accounts on this domain get in |
-| `ADMIN_EMAILS` | Comma-separated; admins see **Sync now** and sync errors |
-| `BASIC_AUTH_USER`, `BASIC_AUTH_PASSWORD` | Optional v1 fallback, used only while Google isn't configured. Anyone with it is an admin |
+| `BASIC_AUTH_PASSWORD` | Optional. When set, the whole app asks for one shared password (username `majorform`, or `BASIC_AUTH_USER`). Empty means open access |
 
-In production the app refuses to serve pages (503) unless Google or Basic auth is configured.
+**Access.** There is no login: anyone with the URL can see the page and press **Sync now** (a second press while a sync runs is refused). To lock it down, set `BASIC_AUTH_PASSWORD`; `/api/health` stays open for Railway's healthcheck.
 
 ## How the data is built
 
@@ -76,7 +72,7 @@ In production the app refuses to serve pages (503) unless Google or Basic auth i
 - each sync re-pulls every half-year that overlaps the current and previous 2 months, so Meta restatements land. Closed half-years are pulled once (tracked in `sync_chunks`).
 - each call is retried 3 times with exponential backoff (2s, 4s, 8s) on timeouts, network drops, 429 and 5xx. If a half-year purchases pull still fails, the sync falls back to quarters and logs a warning.
 
-**Writes.** Each chunk replaces its months in one transaction. If Two Minutes returns nothing for a chunk that has data, the sync fails and keeps the old rows. SGD spend is stored to the cent per row. Every run is logged in `sync_runs`. A failed run leaves the previous data in place, and admins see the error on the page.
+**Writes.** Each chunk replaces its months in one transaction. If Two Minutes returns nothing for a chunk that has data, the sync fails and keeps the old rows. SGD spend is stored to the cent per row. Every run is logged in `sync_runs`. A failed run leaves the previous data in place, and the error shows on the page.
 
 **Currency** (`applyCurrencyConversion`). `purchase_value_sgd = purchase_value_native × rate`, where rate is the account's Σ SGD spend ÷ Σ local spend over its Sales rows that month. Months with no spend fall back to the account's all-time rate. SGD-billed accounts come out at 1.
 
@@ -103,9 +99,9 @@ All ratios come from summed components over the filtered rows (`lib/metrics.ts`)
 ```
 app/page.tsx                 the one page: filters, takeaway, tiles, chart, tables, footnote
 app/api/benchmarks           GET aggregated view for any filter set (same query string as the page)
-app/api/sync                 POST admin "Sync now" (runs in the background), GET sync status
+app/api/sync                 POST "Sync now" (runs in the background), GET sync status
 app/api/health               Railway healthcheck
-auth.ts, proxy.ts            Auth.js Google sign-in + domain check; Basic-auth fallback
+proxy.ts                     optional shared password (BASIC_AUTH_PASSWORD)
 lib/tmr.ts                   Two Minutes REST client: request body, retries, response parsing
 lib/transform.ts             queries 3a/3b, merge, purchases by account type, currency conversion
 lib/sync.ts                  chunk planning, pulls, transactional replace, sync_runs logging

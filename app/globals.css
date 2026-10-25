@@ -191,15 +191,6 @@ tr.is-selected th, tr.is-selected td { font-weight: 600; }
 .footnote ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
 .footnote strong { color: var(--text); }
 
-/* Sign-in */
-.signin { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
-.signin-card {
-  width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: 14px; padding: 28px; display: grid; gap: 10px;
-}
-.signin-card form { margin-top: 8px; }
-.signin-card .btn-primary { width: 100%; }
-
 @media (max-width: 640px) {
   h1 { font-size: 22px; }
   .top { align-items: flex-start; }
