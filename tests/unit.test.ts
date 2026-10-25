@@ -24,7 +24,7 @@ describe("transform", () => {
     const q = mainQuery("2025-06-01", "2025-06-30");
     const json = { connectorResults: [{ results: [{ data: { headers: ["A", "B", "C", "D", "E", "F", "G", "H"], rows: [[1, 2, 3, 4, 5, 6, 7, 8]] } }] }] };
     assert.deepEqual(extractTable(json, { query: q }).fields, [...q.dimensions, ...q.metrics]);
-    assert.throws(() => extractTable({ connectorResults: [{ results: [{ data: { headers: ["A"], rows: [] } }] }] }, { query: q }));
+    assert.throws(() => extractTable({ connectorResults: [{ results: [{ data: { headers: ["A"], rows: [[1]] } }] }] }, { query: q }));
   });
 
   test("purchases use collab fields for CPAS and all_purchases for Brand; zero-spend purchase rows are kept", () => {

@@ -76,24 +76,43 @@ export function configFromEnv(env = process.env): TmrConfig {
   };
 }
 
+/** Connector prefix for field ids: TMR_FIELD_PREFIX, or "<connectorId>_" by default ("none" turns it off). */
+function fieldPrefixFor(cfg: Pick<TmrConfig, "fieldPrefix">, connectorId: string): string {
+  if (cfg.fieldPrefix === "none") return "";
+  return cfg.fieldPrefix || `${connectorId}_`;
+}
+
+/**
+ * REST run-query body. Mirrors how Two Minutes stores dashboard widget queries:
+ * accounts and every field carry the connector prefix ("fads_act_123", "fads_spend"),
+ * and Facebook options go in fadsOptions. Keys whose exact REST spelling is unconfirmed
+ * (date range, currency, filter fields) are sent in both likely forms; the API's validator
+ * reports missing keys and ignores ones it doesn't know.
+ */
 export function buildBody(cfg: Pick<TmrConfig, "teamId" | "fieldPrefix">, req: TmrRequest) {
-  const p = (f: string) => cfg.fieldPrefix + f;
-  const query = {
-    ...req.query,
-    dimensions: req.query.dimensions.map(p),
-    metrics: req.query.metrics.map(p),
-    filters: (req.query.filters ?? []).map((f) => ({ ...f, filterField: p(f.filterField) })),
-  };
+  const fp = fieldPrefixFor(cfg, req.connectorId);
+  const p = (f: string) => (f.startsWith(fp) ? f : fp + f);
+  const { dateRange, reportParams } = req.query;
   return {
     teamId: cfg.teamId,
-    connectors: [
-      {
-        connectorId: req.connectorId,
-        ...(req.currencyCode ? { currencyCode: req.currencyCode } : {}),
-        accountIds: req.accountIds,
-        queries: [{ title: req.title, query }],
-      },
-    ],
+    title: req.title,
+    accounts: req.accountIds.map((a) => (a.startsWith(`${req.connectorId}_`) ? a : `${req.connectorId}_${a}`)),
+    metrics: req.query.metrics.map(p),
+    dimensions: req.query.dimensions.map(p),
+    filters: (req.query.filters ?? []).map((f) => ({
+      field: p(f.filterField),
+      filterField: p(f.filterField),
+      operator: f.operator,
+      expression: f.expression,
+      value: f.expression,
+      ruleType: "and",
+    })),
+    sortBy: [],
+    dateRange,
+    startDate: dateRange.startDate,
+    endDate: dateRange.endDate,
+    ...(req.currencyCode ? { currencyCode: req.currencyCode, currency: req.currencyCode } : {}),
+    ...(reportParams ? { [`${req.connectorId}Options`]: reportParams, reportParams } : {}),
   };
 }
 
@@ -101,28 +120,78 @@ export function queryUrl(cfg: Pick<TmrConfig, "baseUrl" | "queryPath" | "teamId"
   return cfg.baseUrl + cfg.queryPath.replace("{teamId}", encodeURIComponent(cfg.teamId));
 }
 
+type Found = { headers?: unknown[]; rows: unknown[] };
+
+/** Depth-first search for the result table: an object with a `rows` array, or an array of row objects. */
+function findTable(node: unknown, depth = 0): Found | null {
+  if (depth > 5 || node === null || typeof node !== "object") return null;
+  if (Array.isArray(node)) {
+    if (node.length && node.every((r) => r && typeof r === "object" && !Array.isArray(r) && !("rows" in r) && !("data" in r) && !("results" in r))) {
+      return { rows: node };
+    }
+    for (const child of node) {
+      const t = findTable(child, depth + 1);
+      if (t) return t;
+    }
+    return null;
+  }
+  const obj = node as Record<string, unknown>;
+  if (Array.isArray(obj.rows)) return { headers: Array.isArray(obj.headers) ? obj.headers : undefined, rows: obj.rows };
+  for (const key of ["data", "result", "results", "connectorResults"]) {
+    if (key in obj) {
+      const t = findTable(obj[key], depth + 1);
+      if (t) return t;
+    }
+  }
+  if (Array.isArray(obj.data) && obj.data.length === 0) return { rows: [] };
+  return null;
+}
+
 /**
- * Pull the single result table out of a run-query response.
- * Headers come back as display labels ("Facebook Ads Amount spent"), not ids, so columns are
- * mapped by position to the fields we asked for.
+ * Pull the result table out of a run-query response and return rows as arrays in the order
+ * of the requested fields (dimensions, then metrics). Handles header+row arrays (headers may be
+ * display labels, so columns map by position unless the headers are field ids) and rows as objects
+ * keyed by field id, with or without the connector prefix.
  */
-export function extractTable(json: unknown, req: Pick<TmrRequest, "query">): TmrTable {
+export function extractTable(json: unknown, req: Pick<TmrRequest, "query"> & { connectorId?: string }): TmrTable {
   const root = json as Record<string, any>;
-  const connectorResults = root?.connectorResults ?? root?.data?.connectorResults ?? root?.result?.connectorResults;
-  const connector = Array.isArray(connectorResults) ? connectorResults[0] : undefined;
-  if (connector?.error) throw new TmrError(`TMR connector error: ${stringify(connector.error)}`);
-  const result = connector?.results?.[0];
-  if (result?.error) throw new TmrError(`TMR query error: ${stringify(result.error)}`);
-  const data = result?.data;
-  if (!data || !Array.isArray(data.rows)) {
-    throw new TmrError(`Unexpected TMR response shape: ${stringify(json).slice(0, 500)}`);
+  if (root?.success === false || (root?.error && !root?.data)) {
+    throw new TmrError(`TMR query error: ${stringify(root.error ?? root).slice(0, 400)}`);
+  }
+  for (const c of root?.connectorResults ?? root?.data?.connectorResults ?? []) {
+    if (c?.error) throw new TmrError(`TMR connector error: ${stringify(c.error)}`);
+    for (const r of c?.results ?? []) if (r?.error) throw new TmrError(`TMR query error: ${stringify(r.error)}`);
   }
   const fields = [...req.query.dimensions, ...req.query.metrics];
-  const headers: unknown[] = Array.isArray(data.headers) ? data.headers : [];
-  if (headers.length && headers.length !== fields.length) {
-    throw new TmrError(`TMR returned ${headers.length} columns for ${fields.length} requested fields: ${headers.join(", ")}`);
+  const found = findTable(json);
+  if (!found) throw new TmrError(`Unexpected TMR response shape: ${stringify(json).slice(0, 400)}`);
+  if (!found.rows.length) return { fields, rows: [] };
+
+  const prefix = req.connectorId ? `${req.connectorId}_` : "";
+  const keyFor = (keys: string[], f: string) => {
+    const wanted = [f, prefix + f].map((k) => k.toLowerCase());
+    return keys.find((k) => wanted.includes(k.toLowerCase()));
+  };
+
+  if (Array.isArray(found.rows[0])) {
+    const headers = (found.headers ?? []).map(String);
+    // Field-id headers (any order): reorder to the requested fields.
+    const idx = fields.map((f) => (headers.length ? headers.indexOf(keyFor(headers, f) ?? "\0") : -1));
+    if (idx.every((i) => i >= 0)) return { fields, rows: (found.rows as unknown[][]).map((r) => idx.map((i) => r[i])) };
+    // Display-label headers: positional.
+    if (headers.length && headers.length !== fields.length) {
+      throw new TmrError(`TMR returned ${headers.length} columns for ${fields.length} requested fields: ${headers.join(", ")}`);
+    }
+    return { fields, rows: found.rows as unknown[][] };
   }
-  return { fields, rows: data.rows };
+
+  const keys = Object.keys(found.rows[0] as object);
+  const map = fields.map((f) => keyFor(keys, f));
+  const missing = fields.filter((_, i) => !map[i]);
+  if (missing.length) {
+    throw new TmrError(`TMR rows are missing ${missing.join(", ")}; row keys: ${keys.join(", ")}`);
+  }
+  return { fields, rows: found.rows.map((r) => map.map((k) => (r as Record<string, unknown>)[k!])) };
 }
 
 function stringify(v: unknown): string {
@@ -282,6 +351,25 @@ export async function runQuery(
   log: (msg: string) => void = console.log,
 ): Promise<TmrTable> {
   const queryPath = await resolveQueryPath(req, cfg, log);
+  if (!cfg.fieldPrefix && rawFieldIds.has(cfg.baseUrl)) cfg = { ...cfg, fieldPrefix: "none" };
+  try {
+    return await runQueryAt(queryPath, req, cfg, log);
+  } catch (err) {
+    // Prefixed field ids rejected (e.g. "Unknown metric fads_spend"): retry once with raw ids and remember.
+    const msg = (err as Error).message;
+    if (!cfg.fieldPrefix && err instanceof TmrError && err.status === 400 && msg.includes(`${req.connectorId}_`) && !/accounts/i.test(msg)) {
+      log(`  prefixed field ids rejected (${msg.slice(0, 160)}); retrying with raw ids`);
+      const table = await runQueryAt(queryPath, req, { ...cfg, fieldPrefix: "none" }, log);
+      rawFieldIds.add(cfg.baseUrl);
+      return table;
+    }
+    throw err;
+  }
+}
+
+const rawFieldIds = new Set<string>();
+
+async function runQueryAt(queryPath: string, req: TmrRequest, cfg: TmrConfig, log: (msg: string) => void): Promise<TmrTable> {
   const url = queryUrl({ ...cfg, queryPath });
   const body = JSON.stringify(buildBody(cfg, req));
   let lastErr: unknown;

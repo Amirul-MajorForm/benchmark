@@ -37,7 +37,7 @@ With no API key, `npm run fixture:load` loads recorded Q2 2025 Two Minutes data 
 
 The Two Minutes REST docs couldn't be reached from the build environment, so the client finds the Run query endpoint itself. It tries `TMR_QUERY_PATH` first, then the server's OpenAPI spec if it publishes one, then a list of likely paths. A wrong path returns a fast 404, so this adds a second or two to the first call. The sync log prints the path it found; set `TMR_QUERY_PATH` to it to skip the check. If nothing matches, the error lists every path tried with its HTTP status.
 
-The request body is the same shape as the MCP `run_query` payload the prototype used. `npm run tmr:probe` runs one tiny query (OATSIDE, June 2025) to check the key, the endpoint and the response shape. The key must be an **API** key with scope `data:read`; an MCP key will not work.
+The endpoint is `POST /teams/{teamId}/data/run-query` (found on the live API; the sync saves it in `app_settings`). Its body follows the format Two Minutes uses for dashboard widget queries: `accounts` and every field id carry the connector prefix (`fads_act_764971328270854`, `fads_spend`), and Meta options such as `includeAllItems` go in `fadsOptions`. If the API rejects prefixed field ids, the client retries once with raw ids and remembers that. `TMR_FIELD_PREFIX=none` forces raw ids. `npm run tmr:probe` runs one tiny query (OATSIDE, June 2025) to check the key, the endpoint and the response shape. The key must be an **API** key with scope `data:read`; an MCP key will not work.
 
 ## Deploying on Railway
 
@@ -51,7 +51,7 @@ One repo, two services, one Postgres.
 |---|---|
 | `TMR_API_KEY` | Two Minutes → Settings → API keys, intended use **API**, scope `data:read` |
 | `TMR_TEAM_ID` | `019d0ca3-ce95-7387-a650-5e055605107a` |
-| `TMR_QUERY_PATH` | Optional; the sync finds it and logs it (see above). `TMR_API_BASE` and `TMR_FIELD_PREFIX` normally stay unset |
+| `TMR_QUERY_PATH` | Optional; the sync finds it, logs it and saves it (see above). `TMR_API_BASE` and `TMR_FIELD_PREFIX` normally stay unset |
 | `DATABASE_URL` | Railway Postgres (`PGSSLMODE=require` if connecting over the public proxy) |
 | `BASIC_AUTH_PASSWORD` | Optional. When set, the whole app asks for one shared password (username `majorform`, or `BASIC_AUTH_USER`). Empty means open access |
 
