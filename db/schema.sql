@@ -49,3 +49,10 @@ create table if not exists sync_chunks (
   synced_at   timestamptz not null default now(),
   primary key (platform, chunk_start)
 );
+
+-- Small key/value store, e.g. the Two Minutes Run query path found by the sync.
+create table if not exists app_settings (
+  key        text primary key,
+  value      text not null,
+  updated_at timestamptz not null default now()
+);

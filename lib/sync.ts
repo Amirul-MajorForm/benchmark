@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { getPool } from "./db";
-import { runQuery, type TmrConfig, type TmrQuery, type TmrTable, configFromEnv } from "./tmr";
+import { configFromEnv, resolveQueryPath, runQuery, type TmrConfig, type TmrQuery, type TmrTable } from "./tmr";
 import {
   type AccountType,
   type FactRow,
@@ -126,13 +126,7 @@ async function doSync(opts: SyncOptions, log: (msg: string) => void): Promise<nu
   if (!accounts.length) throw new Error("No enabled accounts in the accounts table");
   const accountIdsForQuery = accounts.map((a) => `act_${a.accountId}`);
   const types = new Map(accounts.map((a) => [a.accountId, a.type]));
-  const query =
-    opts.query ??
-    (() => {
-      const cfg = opts.cfg ?? configFromEnv();
-      return (title: string, q: TmrQuery, currencyCode?: string) =>
-        runQuery({ connectorId: META_CONNECTOR, accountIds: accountIdsForQuery, currencyCode, title, query: q }, cfg, log);
-    })();
+  const query = opts.query ?? (await liveQuery(opts.cfg ?? configFromEnv(), accountIdsForQuery, log));
 
   const { rows: done } = await pool.query(
     "select to_char(chunk_start, 'YYYY-MM-DD') as chunk_start from sync_chunks where platform = $1",
@@ -153,6 +147,28 @@ async function doSync(opts: SyncOptions, log: (msg: string) => void): Promise<nu
 
   await recomputeSgdValues(new Map(accounts.map((a) => [a.accountId, a.currency])));
   return written;
+}
+
+/**
+ * Live TMR query function. Uses the Run query path saved by an earlier sync (unless TMR_QUERY_PATH
+ * is set), confirms it with one tiny request, and saves whatever path that check settles on.
+ */
+async function liveQuery(cfg: TmrConfig, accountIds: string[], log: (msg: string) => void) {
+  const pool = getPool();
+  if (!process.env.TMR_QUERY_PATH) {
+    const { rows } = await pool.query("select value from app_settings where key = 'tmr_query_path'");
+    if (rows[0]?.value) cfg = { ...cfg, queryPath: rows[0].value };
+  }
+  const probe = { connectorId: META_CONNECTOR, accountIds, currencyCode: "SGD", title: "endpoint check", query: mainQuery(SYNC_FROM, SYNC_FROM) };
+  const path = await resolveQueryPath(probe, cfg, log);
+  await pool.query(
+    `insert into app_settings (key, value) values ('tmr_query_path', $1)
+     on conflict (key) do update set value = excluded.value, updated_at = now()`,
+    [path],
+  );
+  cfg = { ...cfg, queryPath: path };
+  return (title: string, q: TmrQuery, currencyCode?: string) =>
+    runQuery({ connectorId: META_CONNECTOR, accountIds, currencyCode, title, query: q }, cfg, log);
 }
 
 async function pullMain(

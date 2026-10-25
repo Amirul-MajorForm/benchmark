@@ -6,10 +6,16 @@ import { runQuery, type TmrConfig, TmrError } from "../lib/tmr";
 import { mainQuery } from "../lib/transform";
 
 /** Mock Two Minutes: only `route` exists; everything else 404s like the real API. */
-function mockTmr(route: string, opts: { spec?: boolean; status?: number } = {}) {
+function mockTmr(route: string, opts: { spec?: boolean; status?: number; rateLimitFirst?: number } = {}) {
   const hits: string[] = [];
+  let limited = 0;
   const server = createServer((req, res) => {
     hits.push(`${req.method} ${req.url}`);
+    if (limited < (opts.rateLimitFirst ?? 0)) {
+      limited++;
+      res.writeHead(429, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ title: "Error 1015: You are being rate limited", status: 429 }));
+    }
     if (opts.spec && req.method === "GET" && req.url === "/v1/openapi.json") {
       res.writeHead(200, { "content-type": "application/json" });
       return res.end(JSON.stringify({ paths: { [`/v1${route.replace("{teamId}", "{team_id}")}`]: { post: { summary: "Run query" } } } }));
@@ -28,6 +34,7 @@ const listen = (server: Server) => new Promise<string>((r) => server.listen(0, "
 
 const cfg = (baseUrl: string): TmrConfig => ({
   apiKey: "k", teamId: "team-1", baseUrl, queryPath: "/teams/{teamId}/query", fieldPrefix: "", timeoutMs: 5000, retries: 0, backoffMs: 1,
+  minIntervalMs: 0, rateLimitWaitsMs: [5, 5, 5],
 });
 const req = { connectorId: "fads", accountIds: ["act_1", "act_2"], currencyCode: "SGD", title: "t", query: mainQuery("2025-06-01", "2025-06-30") };
 const quiet = () => {};
@@ -51,6 +58,22 @@ describe("TMR endpoint discovery", () => {
     const table = await runQuery(req, cfg(await listen(server)), quiet);
     assert.equal(table.rows.length, 1);
     assert.ok(hits.includes("POST /v1/teams/team-1/insights/run"));
+  });
+
+  test("waits out 429s and never mistakes one for the endpoint", async () => {
+    const { server, hits } = mockTmr("/data/query", { rateLimitFirst: 3 });
+    servers.push(server);
+    const table = await runQuery(req, cfg(await listen(server)), quiet);
+    assert.equal(table.rows.length, 1);
+    // the configured path was retried after the 429s and then 404'd; discovery moved on to /data/query
+    assert.ok(hits.filter((h) => h === "POST /v1/teams/team-1/query").length >= 2);
+    assert.ok(hits.includes("POST /v1/data/query"));
+  });
+
+  test("gives up with a short message when the rate limit does not lift", async () => {
+    const { server } = mockTmr("/data/query", { rateLimitFirst: 100 });
+    servers.push(server);
+    await assert.rejects(runQuery(req, cfg(await listen(server)), quiet), /rate-limiting this server/);
   });
 
   test("reports every path tried when nothing matches", async () => {

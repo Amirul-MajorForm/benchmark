@@ -53,6 +53,10 @@ export type TmrConfig = {
   timeoutMs: number;
   retries: number;
   backoffMs: number;
+  /** Minimum gap between request starts; Two Minutes sits behind a Cloudflare rate limit. */
+  minIntervalMs: number;
+  /** Waits before giving up on a 429 (Retry-After wins when the server sends one). */
+  rateLimitWaitsMs: number[];
 };
 
 export function configFromEnv(env = process.env): TmrConfig {
@@ -67,6 +71,8 @@ export function configFromEnv(env = process.env): TmrConfig {
     timeoutMs: Number(env.TMR_TIMEOUT_MS || 120_000),
     retries: 3,
     backoffMs: 2_000,
+    minIntervalMs: Number(env.TMR_MIN_INTERVAL_MS || 2_000),
+    rateLimitWaitsMs: [30_000, 60_000, 120_000, 240_000],
   };
 }
 
@@ -125,6 +131,37 @@ function stringify(v: unknown): string {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+let nextSlot = 0;
+
+/**
+ * Every call to Two Minutes goes through here: requests are spaced at least minIntervalMs apart,
+ * and a 429 (Cloudflare 1015) waits Retry-After or the next rateLimitWaitsMs step, then tries again.
+ * Throws a short TmrError once the waits run out.
+ */
+async function tmrFetch(cfg: TmrConfig, url: string, init: RequestInit, log: (msg: string) => void): Promise<Response> {
+  for (let i = 0; ; i++) {
+    const now = Date.now();
+    const slot = Math.max(now, nextSlot);
+    nextSlot = slot + cfg.minIntervalMs;
+    if (slot > now) await sleep(slot - now);
+
+    const res = await fetch(url, init);
+    if (res.status !== 429) return res;
+    await res.body?.cancel();
+    if (i >= cfg.rateLimitWaitsMs.length) {
+      throw new TmrError(
+        `Two Minutes is rate-limiting this server (HTTP 429, Cloudflare 1015) on ${new URL(url).pathname}. ` +
+          "Gave up after waiting several minutes; try Sync now again later.",
+        429,
+      );
+    }
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : cfg.rateLimitWaitsMs[i];
+    log(`  rate-limited by Two Minutes (429), waiting ${Math.round(wait / 1000)}s`);
+    nextSlot = Date.now() + wait;
+  }
+}
+
 /** Likely Run query paths, tried in order when the configured one 404s. */
 export const CANDIDATE_PATHS = [
   "/teams/{teamId}/query",
@@ -151,13 +188,9 @@ const resolvedPaths = new Map<string, string>();
 async function openApiCandidates(cfg: TmrConfig, log: (msg: string) => void): Promise<string[]> {
   const origin = new URL(cfg.baseUrl).origin;
   const basePath = new URL(cfg.baseUrl).pathname.replace(/\/$/, "");
-  const specUrls = ["/openapi.json", "/swagger.json", "/docs/openapi.json", "/docs/json"].flatMap((f) => [
-    cfg.baseUrl + f,
-    origin + f,
-  ]);
-  for (const url of specUrls) {
+  for (const url of [`${cfg.baseUrl}/openapi.json`, `${origin}/openapi.json`]) {
     try {
-      const res = await fetch(url, { headers: { Authorization: `Bearer ${cfg.apiKey}` }, signal: AbortSignal.timeout(10_000) });
+      const res = await tmrFetch(cfg, url, { headers: { Authorization: `Bearer ${cfg.apiKey}` }, signal: AbortSignal.timeout(10_000) }, log);
       if (!res.ok) continue;
       const spec = (await res.json()) as { paths?: Record<string, Record<string, { operationId?: string; summary?: string }>> };
       if (!spec?.paths) continue;
@@ -167,7 +200,8 @@ async function openApiCandidates(cfg: TmrConfig, log: (msg: string) => void): Pr
         .map((path) => path.replace(/\{[^}]*team[^}]*\}/i, "{teamId}"));
       log(`  TMR OpenAPI spec at ${url}: ${found.length ? found.join(", ") : "no run-query path"}`);
       return found;
-    } catch {
+    } catch (err) {
+      if (err instanceof TmrError) throw err; // rate limit: stop probing
       // not JSON or not reachable: try the next location
     }
   }
@@ -202,13 +236,14 @@ export async function resolveQueryPath(
       const url = queryUrl({ ...cfg, queryPath: path });
       let res: Response;
       try {
-        res = await fetch(url, {
+        res = await tmrFetch(cfg, url, {
           method: "POST",
           headers: { Authorization: `Bearer ${cfg.apiKey}`, "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(buildBody(cfg, probe)),
           signal: AbortSignal.timeout(cfg.timeoutMs),
-        });
+        }, log);
       } catch (err) {
+        if (err instanceof TmrError) throw err;
         throw new TmrError(`Could not reach Two Minutes at ${url}: ${(err as Error).message}`, undefined, true);
       }
       const text = (await res.text()).slice(0, 200);
@@ -216,8 +251,12 @@ export async function resolveQueryPath(
         throw new TmrError(`TMR ${res.status}: the API key was rejected. Use an API key (not MCP) with scope data:read. ${text}`, res.status);
       }
       tried.set(path, res.status);
-      // 404/405 = no such route. Anything else (200, 400, 5xx...) means the route exists.
-      if (res.status !== 404 && res.status !== 405) return path;
+      // 404/405 = no such route. A real answer (200, 400, 422...) means the route exists.
+      // 5xx proves nothing either way, so it is not accepted.
+      if (res.status !== 404 && res.status !== 405 && res.status < 500) {
+        log(`  TMR endpoint check: POST ${path} -> HTTP ${res.status}`);
+        return path;
+      }
     }
     return null;
   };
@@ -254,7 +293,7 @@ export async function runQuery(
     }
     const started = Date.now();
     try {
-      const res = await fetch(url, {
+      const res = await tmrFetch(cfg, url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${cfg.apiKey}`,
@@ -263,10 +302,10 @@ export async function runQuery(
         },
         body,
         signal: AbortSignal.timeout(cfg.timeoutMs),
-      });
+      }, log);
       const text = await res.text();
       if (!res.ok) {
-        throw new TmrError(`TMR ${res.status} ${res.statusText}: ${text.slice(0, 500)}`, res.status, res.status >= 500 || res.status === 429);
+        throw new TmrError(`TMR ${res.status} on POST ${queryPath}: ${text.slice(0, 400)}`, res.status, res.status >= 500);
       }
       const table = extractTable(JSON.parse(text), req);
       log(`  ${req.title} ${req.query.dateRange.startDate}..${req.query.dateRange.endDate}: ${table.rows.length} rows in ${((Date.now() - started) / 1000).toFixed(1)}s`);
