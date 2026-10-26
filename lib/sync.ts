@@ -14,6 +14,8 @@ import {
 export const SYNC_FROM = "2025-01-01";
 const PLATFORM = "meta";
 const LOCK_KEY = 4_206_031; // pg advisory lock id for the sync job
+/** Bump to make the next sync re-pull every half-year (2: spend must be SGD-converted). */
+const DATA_VERSION = "2";
 
 export type Range = { start: string; end: string };
 
@@ -128,6 +130,13 @@ async function doSync(opts: SyncOptions, log: (msg: string) => void): Promise<nu
   const types = new Map(accounts.map((a) => [a.accountId, a.type]));
   const query = opts.query ?? (await liveQuery(opts.cfg ?? configFromEnv(), accountIdsForQuery, log));
 
+  // Data saved by an older sync version is re-pulled once (e.g. spend that came back unconverted).
+  const { rows: ver } = await pool.query("select value from app_settings where key = 'data_version'");
+  if (ver[0]?.value !== DATA_VERSION) {
+    log(`sync: data version ${ver[0]?.value ?? "none"} -> ${DATA_VERSION}, re-pulling every half-year`);
+    await pool.query("delete from sync_chunks where platform = $1", [PLATFORM]);
+  }
+
   const { rows: done } = await pool.query(
     "select to_char(chunk_start, 'YYYY-MM-DD') as chunk_start from sync_chunks where platform = $1",
     [PLATFORM],
@@ -141,11 +150,17 @@ async function doSync(opts: SyncOptions, log: (msg: string) => void): Promise<nu
     const main = await pullMain(query, chunk);
     const purchases = await pullPurchases(query, chunk, log);
     const facts = mergeChunk(main, purchases, types, PLATFORM);
+    assertSpendInSgd(facts, accounts, chunk);
     written += await replaceChunk(chunk, facts, accounts.map((a) => a.accountId));
     log(`sync: ${chunk.start}..${chunk.end} -> ${facts.length} rows`);
   }
 
   await recomputeSgdValues(new Map(accounts.map((a) => [a.accountId, a.currency])));
+  await pool.query(
+    `insert into app_settings (key, value) values ('data_version', $1)
+     on conflict (key) do update set value = excluded.value, updated_at = now()`,
+    [DATA_VERSION],
+  );
   return written;
 }
 
@@ -169,6 +184,31 @@ async function liveQuery(cfg: TmrConfig, accountIds: string[], log: (msg: string
   cfg = { ...cfg, queryPath: path };
   return (title: string, q: TmrQuery, currencyCode?: string) =>
     runQuery({ connectorId: META_CONNECTOR, accountIds, currencyCode, title, query: q }, cfg, log);
+}
+
+/**
+ * Spend from query 3a must be in SGD. For accounts billed in another currency, SGD spend equal to
+ * local spend means Two Minutes ignored the currency request; fail rather than save wrong numbers.
+ */
+export function assertSpendInSgd(facts: FactRow[], accounts: { accountId: string; currency: string | null }[], chunk: Range) {
+  const foreign = new Map(accounts.filter((a) => a.currency && a.currency !== "SGD").map((a) => [a.accountId, a.currency!]));
+  const sums = new Map<string, { sgd: number; native: number }>();
+  for (const f of facts) {
+    if (!foreign.has(f.accountId) || !f.spendNative) continue;
+    const t = sums.get(f.accountId) ?? { sgd: 0, native: 0 };
+    t.sgd += f.spendSgd;
+    t.native += f.spendNative;
+    sums.set(f.accountId, t);
+  }
+  const unconverted = [...sums].filter(([, t]) => t.sgd > 0 && Math.abs(t.sgd / t.native - 1) < 0.001);
+  if (unconverted.length) {
+    const [id, t] = unconverted[0];
+    throw new Error(
+      `Two Minutes returned spend in local currency, not SGD, for ${chunk.start}..${chunk.end} ` +
+        `(account ${id} is billed in ${foreign.get(id)}: "SGD" spend ${t.sgd.toFixed(2)} = local spend ${t.native.toFixed(2)}). ` +
+        "Nothing was saved for this period.",
+    );
+  }
 }
 
 async function pullMain(

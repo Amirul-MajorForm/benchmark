@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { buildView, DEFAULT_FILTERS, filtersToQuery, parseFilters, parsePeriod, previousPeriod } from "../lib/benchmarks";
 import type { Fact } from "../lib/metrics";
-import { halfYearChunks, planChunks, quarterRanges, recentWindowStart } from "../lib/sync";
+import { assertSpendInSgd, halfYearChunks, planChunks, quarterRanges, recentWindowStart } from "../lib/sync";
 import { extractTable } from "../lib/tmr";
 import { applyCurrencyConversion, type FactRow, mainQuery, mergeChunk, monthStart, num, stripAct } from "../lib/transform";
 
@@ -95,6 +95,23 @@ describe("sync planning", () => {
     assert.deepEqual(planChunks("2026-10-25", synced).map((c) => c.start), ["2026-07-01"]);
     assert.deepEqual(planChunks("2027-01-03", new Set([...synced])).map((c) => c.start), ["2026-07-01", "2027-01-01"]);
     assert.equal(planChunks("2026-10-25", synced, true).length, 4);
+  });
+});
+
+describe("currency check", () => {
+  const row = (accountId: string, spendSgd: number, spendNative: number): FactRow => ({
+    platform: "meta", accountId, objective: "OUTCOME_SALES", goal: "X", month: "2025-04-01", spendSgd, impressions: 0,
+    clicks: 0, linkClicks: 0, spendNative, purchases: 1, purchaseValueNative: 1, purchaseValueSgd: null,
+  });
+  const accounts = [{ accountId: "my", currency: "MYR" }, { accountId: "sg", currency: "SGD" }, { accountId: "x", currency: null }];
+  const chunk = { start: "2025-01-01", end: "2025-06-30" };
+
+  test("passes when foreign-billed spend was converted; SGD accounts at 1:1 are fine", () => {
+    assert.doesNotThrow(() => assertSpendInSgd([row("my", 3852.96, 12852.35), row("sg", 100, 100), row("x", 5, 5)], accounts, chunk));
+  });
+
+  test("fails when a MYR account's SGD spend equals its local spend", () => {
+    assert.throws(() => assertSpendInSgd([row("my", 12852.35, 12852.35)], accounts, chunk), /local currency, not SGD/);
   });
 });
 

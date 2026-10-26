@@ -33,3 +33,17 @@ insert into accounts (platform, account_id, name, client, market, account_type, 
   ('meta', '60873128',         'Yoga Movement Singapore',        'Yoga Movement', 'SG', 'Brand', null),
   ('meta', '666018586240602',  'Yoga Movement Hong Kong',        'Yoga Movement', 'HK', 'Brand', null)
 on conflict (platform, account_id) do nothing;
+
+-- Billing currencies known from the data (SGD spend / local spend on Sales rows). Fills blanks only.
+-- The sync uses the non-SGD ones to check that Two Minutes really returned spend in SGD.
+update accounts a set currency = v.currency
+from (values
+  ('1001057058029561', 'MYR'),
+  ('1324603498206088', 'PHP'),
+  ('1437746287146983', 'IDR'),
+  ('764971328270854',  'SGD'),
+  ('674743694682068',  'SGD'),
+  ('186600104319744',  'SGD'),
+  ('3517635831788796', 'SGD')
+) as v(account_id, currency)
+where a.platform = 'meta' and a.account_id = v.account_id and a.currency is null;

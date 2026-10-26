@@ -124,13 +124,15 @@ describe("REST request body", () => {
     assert.deepEqual(body.metrics, ["fads_spend", "fads_impressions", "fads_clicks", "fads_link_clicks"]);
     assert.deepEqual(body.dateRange, { startDate: "2025-01-01", endDate: "2025-03-31" });
     assert.equal(body.currencyCode, "SGD");
-    assert.deepEqual((body as any).fadsOptions, { includeAllItems: true });
+    assert.deepEqual((body as any).metricConfigs, { fads_spend: { unit: { type: "currency", subtype: "SGD" } } });
+    assert.deepEqual((body as any).fadsOptions, { includeAllItems: true, currencyCode: "SGD" });
   });
 
   test("purchases query: no API filter (Sales rows picked in mergeChunk), no currency", () => {
     const body = buildBody(c, { connectorId: "fads", accountIds: ["act_1"], title: "t", query: purchasesQuery("2025-01-01", "2025-06-30") });
     assert.deepEqual(body.filters, []);
     assert.equal(body.currencyCode, undefined);
+    assert.equal((body as any).metricConfigs, undefined);
   });
 
   test("filters, when used, carry fieldId", () => {
