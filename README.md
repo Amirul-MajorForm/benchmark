@@ -68,9 +68,11 @@ One repo, two services, one Postgres.
 - each sync re-pulls every half-year that overlaps the current and previous 2 months, so Meta restatements land. Closed half-years are pulled once (tracked in `sync_chunks`).
 - each call is retried 3 times with exponential backoff (2s, 4s, 8s) on timeouts, network drops, 429 and 5xx. If a half-year purchases pull still fails, the sync falls back to quarters and logs a warning.
 
-**Writes.** Each chunk replaces its months in one transaction. If Two Minutes returns nothing for a chunk that has data, the sync fails and keeps the old rows. SGD spend is stored to the cent per row. Every run is logged in `sync_runs`. A failed run leaves the previous data in place, and the error shows on the page.
+**Writes.** Each chunk replaces its months in one transaction. If Two Minutes returns nothing for a chunk that has data, the sync fails and keeps the old rows. SGD spend is stored to the cent per row (after conversion). Every run is logged in `sync_runs`. A failed run leaves the previous data in place, and the error shows on the page.
 
-**Currency** (`applyCurrencyConversion`). `purchase_value_sgd = purchase_value_native × rate`, where rate is the account's Σ SGD spend ÷ Σ local spend over its Sales rows that month. Months with no spend fall back to the account's all-time rate. SGD-billed accounts come out at 1.
+**Spend to SGD** (`lib/fx.ts`). The Two Minutes REST API returns spend in each ad account's own currency and ignored every way of asking for SGD (`currencyCode`, per-metric `metricConfigs`, `dataOptions.currency`). So the spend query also returns `account_currency`, a light extra query returns each account's daily local spend, and each account-month is converted at its spend-weighted rate: Σ(daily spend × that day's rate) ÷ Σ daily spend. Daily SGD rates come from the free [currency-api](https://github.com/fawazahmed0/exchange-api) (jsDelivr, with a Cloudflare Pages mirror) and are cached in `fx_daily`, so a finished month is fetched once. Checked against the rates Two Minutes applied in the prototype: PHP June 2025 is within 0.03% spend-weighted (a plain monthly average was 1.4% off). If the daily query fails, the month's average rate is used and the sync logs a warning. The sync also refuses to save a chunk where a known MYR/PHP/IDR account's SGD spend equals its local spend. Each account's currency is recorded in `accounts.currency`.
+
+**Purchase value currency** (`applyCurrencyConversion`). `purchase_value_sgd = purchase_value_native × rate`, where rate is the account's Σ SGD spend ÷ Σ local spend over its Sales rows that month. Months with no spend fall back to the account's all-time rate. SGD-billed accounts come out at 1.
 
 ## Metrics
 
@@ -88,7 +90,7 @@ All ratios come from summed components over the filtered rows (`lib/metrics.ts`)
 
 ## Acceptance tests (brief §9)
 
-`tests/acceptance.test.ts` loads real Two Minutes responses for Q2 2025 (recorded 25 Oct 2026, in `tests/fixtures/`) through the real sync code into Postgres. It then checks every Q2 2025 row of the brief to the cent: Reach CPM S$0.394 on S$16,549.90, CPAS CPA S$4.84 / ROAS 4.39x on 4,988 purchases, Brand CPA S$22.70 / ROAS 2.47x, and the rest. The all-time spend check (S$733,149.58 to 24 Oct 2026) needs a full live sync, so it runs with `ACCEPTANCE_LIVE=1`.
+`tests/acceptance.test.ts` loads real Two Minutes responses for Q2 2025 (recorded 25 Oct 2026, in `tests/fixtures/`) through the real sync code into Postgres. It then checks every Q2 2025 row of the brief to the cent: Reach CPM S$0.394 on S$16,549.90, CPAS CPA S$4.84 / ROAS 4.39x on 4,988 purchases, Brand CPA S$22.70 / ROAS 2.47x, and the rest. The all-time spend check (S$733,149.58 to 24 Oct 2026) needs a full live sync, so it runs with `ACCEPTANCE_LIVE=1`. The recorded responses were converted to SGD by Two Minutes, so these tests check the metric logic to the cent. Live data is converted by our own rates (above) and lands within a fraction of a percent of those figures.
 
 ## Code map
 

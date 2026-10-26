@@ -28,7 +28,7 @@ describe("transform", () => {
 
   test("columns map by position, not by header label", () => {
     const q = mainQuery("2025-06-01", "2025-06-30");
-    const json = { connectorResults: [{ results: [{ data: { headers: ["A", "B", "C", "D", "E", "F", "G", "H"], rows: [[1, 2, 3, 4, 5, 6, 7, 8]] } }] }] };
+    const json = { connectorResults: [{ results: [{ data: { headers: ["A", "B", "C", "D", "E", "F", "G", "H", "I"], rows: [[1, 2, 3, 4, 5, 6, 7, 8, 9]] } }] }] };
     assert.deepEqual(extractTable(json, { query: q }).fields, [...q.dimensions, ...q.metrics]);
     assert.throws(() => extractTable({ connectorResults: [{ results: [{ data: { headers: ["A"], rows: [[1]] } }] }] }, { query: q }));
   });

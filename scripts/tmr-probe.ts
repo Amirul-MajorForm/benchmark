@@ -14,7 +14,6 @@ async function main() {
   const req = {
     connectorId: "fads",
     accountIds: ["act_764971328270854"],
-    currencyCode: "SGD",
     title: "probe",
     query: {
       dateRange: { startDate: "2025-06-01", endDate: "2025-06-30" },
@@ -28,7 +27,7 @@ async function main() {
   try {
     const table = await runQuery(req, { ...cfg, retries: 0 });
     console.log(`Rows: ${JSON.stringify(table.rows)}`);
-    console.log("Expected OATSIDE June 2025 spend: S$20,160.87 (all objectives).");
+    console.log("Spend is in the account's own currency (OATSIDE is SGD-billed: expect S$20,160.87 for June 2025).");
     console.log(`\nWorking. Optionally set TMR_QUERY_PATH=${path} on Railway.`);
   } catch (err) {
     console.log(`The endpoint exists but the query failed: ${(err as Error).message}`);

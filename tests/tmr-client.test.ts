@@ -36,7 +36,7 @@ function mockTmr(route: string, opts: { spec?: boolean; status?: number; rateLim
           return res.end(JSON.stringify({ success: false, error: { code: "BAD_REQUEST", message: `Unknown metric ${body.metrics[0]}` } }));
         }
         res.writeHead(opts.status ?? 200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ success: true, data: { headers: body.dimensions.concat(body.metrics), rows: [["act_1", "OUTCOME_SALES", "REACH", "2025-Jun", 1, 2, 3, 4]] } }));
+        res.end(JSON.stringify({ success: true, data: { headers: body.dimensions.concat(body.metrics), rows: [["act_1", "OUTCOME_SALES", "REACH", "2025-Jun", "MYR", 1, 2, 3, 4]] } }));
       });
       return;
     }
@@ -52,7 +52,7 @@ const cfg = (baseUrl: string): TmrConfig => ({
   apiKey: "k", teamId: "team-1", baseUrl, queryPath: "/teams/{teamId}/query", fieldPrefix: "", timeoutMs: 5000, retries: 0, backoffMs: 1,
   minIntervalMs: 0, rateLimitWaitsMs: [5, 5, 5],
 });
-const req = { connectorId: "fads", accountIds: ["act_1", "act_2"], currencyCode: "SGD", title: "t", query: mainQuery("2025-06-01", "2025-06-30") };
+const req = { connectorId: "fads", accountIds: ["act_1", "act_2"], title: "t", query: mainQuery("2025-06-01", "2025-06-30") };
 const quiet = () => {};
 
 describe("TMR endpoint discovery", () => {
@@ -64,7 +64,7 @@ describe("TMR endpoint discovery", () => {
     servers.push(server);
     const table = await runQuery(req, cfg(await listen(server)), quiet);
     assert.equal(table.rows.length, 1);
-    assert.deepEqual(table.rows[0], ["act_1", "OUTCOME_SALES", "REACH", "2025-Jun", 1, 2, 3, 4]);
+    assert.deepEqual(table.rows[0], ["act_1", "OUTCOME_SALES", "REACH", "2025-Jun", "MYR", 1, 2, 3, 4]);
     assert.deepEqual(bodies.at(-1).accounts, ["fads_act_1", "fads_act_2"]);
     assert.ok(hits.includes("POST /v1/teams/team-1/query"));
     assert.equal(hits.filter((h) => h === "POST /v1/data/query").length, 2); // endpoint check + real query
@@ -118,22 +118,18 @@ describe("REST request body", () => {
   const c = { teamId: "team-1", fieldPrefix: "" };
 
   test("accounts and fields carry the connector prefix, like dashboard widget queries", () => {
-    const body = buildBody(c, { connectorId: "fads", accountIds: ["act_764971328270854"], currencyCode: "SGD", title: "t", query: mainQuery("2025-01-01", "2025-03-31") });
+    const body = buildBody(c, { connectorId: "fads", accountIds: ["act_764971328270854"], title: "t", query: mainQuery("2025-01-01", "2025-03-31") });
     assert.deepEqual(body.accounts, ["fads_act_764971328270854"]);
-    assert.deepEqual(body.dimensions, ["fads_account_id", "fads_campaign_objective", "fads_optimization_goal", "fads_year_month"]);
+    assert.deepEqual(body.dimensions, ["fads_account_id", "fads_campaign_objective", "fads_optimization_goal", "fads_year_month", "fads_account_currency"]);
     assert.deepEqual(body.metrics, ["fads_spend", "fads_impressions", "fads_clicks", "fads_link_clicks"]);
     assert.deepEqual(body.dateRange, { startDate: "2025-01-01", endDate: "2025-03-31" });
-    assert.deepEqual((body as any).dataOptions, { currency: "SGD" });
-    assert.equal(body.currencyCode, "SGD");
-    assert.deepEqual((body as any).metricConfigs, { fads_spend: { unit: { type: "currency", subtype: "SGD" } } });
-    assert.deepEqual((body as any).fadsOptions, { includeAllItems: true, currencyCode: "SGD" });
+    assert.equal((body as any).currencyCode, undefined); // spend comes back in local currency; we convert
+    assert.deepEqual((body as any).fadsOptions, { includeAllItems: true });
   });
 
-  test("purchases query: no API filter (Sales rows picked in mergeChunk), no currency", () => {
+  test("purchases query: no API filter (Sales rows picked in mergeChunk)", () => {
     const body = buildBody(c, { connectorId: "fads", accountIds: ["act_1"], title: "t", query: purchasesQuery("2025-01-01", "2025-06-30") });
     assert.deepEqual(body.filters, []);
-    assert.equal(body.currencyCode, undefined);
-    assert.equal((body as any).metricConfigs, undefined);
     assert.equal((body as any).dataOptions, undefined);
   });
 

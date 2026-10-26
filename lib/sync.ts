@@ -1,8 +1,12 @@
 import type { PoolClient } from "pg";
 import { getPool } from "./db";
 import { configFromEnv, resolveQueryPath, runQuery, type TmrConfig, type TmrQuery, type TmrTable } from "./tmr";
+import { buildConverter, type DailySpend, daysBetween, ensureDailyRates, type FxFetcher } from "./fx";
 import {
+  accountCurrencies,
   type AccountType,
+  dailySpendQuery,
+  parseDailySpend,
   type FactRow,
   META_CONNECTOR,
   applyCurrencyConversion,
@@ -14,13 +18,14 @@ import {
 export const SYNC_FROM = "2025-01-01";
 const PLATFORM = "meta";
 const LOCK_KEY = 4_206_031; // pg advisory lock id for the sync job
-/** Bump to make the next sync re-pull every half-year (2: spend must be SGD-converted). */
-const DATA_VERSION = "2";
+/** Bump to make the next sync re-pull every half-year (3: spend converted to SGD by us, see lib/fx.ts). */
+const DATA_VERSION = "3";
 
 export type Range = { start: string; end: string };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d));
+const addDays = (day: string, n: number) => iso(new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000));
 
 /** Half-year chunks (Jan-Jun, Jul-Dec) from `from` to `today`, the last one clipped to today. */
 export function halfYearChunks(from: string, today: string): (Range & { fullEnd: string })[] {
@@ -81,7 +86,8 @@ export type SyncOptions = {
   cfg?: TmrConfig;
   log?: (msg: string) => void;
   /** Injected for tests / fixtures. */
-  query?: (title: string, q: TmrQuery, currencyCode?: string) => Promise<TmrTable>;
+  query?: (title: string, q: TmrQuery) => Promise<TmrTable>;
+  fx?: FxFetcher;
 };
 
 export type SyncResult = { runId: number; status: "success" | "failed" | "skipped"; rows: number; error?: string };
@@ -128,6 +134,7 @@ async function doSync(opts: SyncOptions, log: (msg: string) => void): Promise<nu
   if (!accounts.length) throw new Error("No enabled accounts in the accounts table");
   const accountIdsForQuery = accounts.map((a) => `act_${a.accountId}`);
   const types = new Map(accounts.map((a) => [a.accountId, a.type]));
+  const knownCurrencies = new Map(accounts.map((a) => [a.accountId, a.currency]));
   const query = opts.query ?? (await liveQuery(opts.cfg ?? configFromEnv(), accountIdsForQuery, log));
 
   // Data saved by an older sync version is re-pulled once (e.g. spend that came back unconverted).
@@ -149,13 +156,27 @@ async function doSync(opts: SyncOptions, log: (msg: string) => void): Promise<nu
   for (const chunk of chunks) {
     const main = await pullMain(query, chunk);
     const purchases = await pullPurchases(query, chunk, log);
-    const facts = mergeChunk(main, purchases, types, PLATFORM);
+
+    // Spend comes back in each account's own currency: convert at spend-weighted daily rates.
+    const daily = await pullDailySpend(query, chunk, log);
+    const currencies = new Map([...knownCurrencies, ...accountCurrencies(main)]);
+    await saveCurrencies(accountCurrencies(main), knownCurrencies);
+    const rates = await ensureDailyRates(
+      [...currencies.values()].filter(Boolean) as string[],
+      daysBetween(addDays(chunk.start, -7), chunk.end), // a week before covers unpublished days at the start
+      today,
+      opts.fx,
+      log,
+    );
+    const toSgd = buildConverter(rates, daily);
+
+    const facts = mergeChunk(main, purchases, types, PLATFORM, toSgd, currencies);
     assertSpendInSgd(facts, accounts, chunk);
     written += await replaceChunk(chunk, facts, accounts.map((a) => a.accountId));
     log(`sync: ${chunk.start}..${chunk.end} -> ${facts.length} rows`);
   }
 
-  await recomputeSgdValues(new Map(accounts.map((a) => [a.accountId, a.currency])));
+  await recomputeSgdValues(knownCurrencies);
   await pool.query(
     `insert into app_settings (key, value) values ('data_version', $1)
      on conflict (key) do update set value = excluded.value, updated_at = now()`,
@@ -174,7 +195,7 @@ async function liveQuery(cfg: TmrConfig, accountIds: string[], log: (msg: string
     const { rows } = await pool.query("select value from app_settings where key = 'tmr_query_path'");
     if (rows[0]?.value) cfg = { ...cfg, queryPath: rows[0].value };
   }
-  const probe = { connectorId: META_CONNECTOR, accountIds, currencyCode: "SGD", title: "endpoint check", query: mainQuery(SYNC_FROM, SYNC_FROM) };
+  const probe = { connectorId: META_CONNECTOR, accountIds, title: "endpoint check", query: mainQuery(SYNC_FROM, SYNC_FROM) };
   const path = await resolveQueryPath(probe, cfg, log);
   await pool.query(
     `insert into app_settings (key, value) values ('tmr_query_path', $1)
@@ -182,8 +203,19 @@ async function liveQuery(cfg: TmrConfig, accountIds: string[], log: (msg: string
     [path],
   );
   cfg = { ...cfg, queryPath: path };
-  return (title: string, q: TmrQuery, currencyCode?: string) =>
-    runQuery({ connectorId: META_CONNECTOR, accountIds, currencyCode, title, query: q }, cfg, log);
+  return (title: string, q: TmrQuery) => runQuery({ connectorId: META_CONNECTOR, accountIds, title, query: q }, cfg, log);
+}
+
+/** Record the billing currency Meta reports for each account (and keep the in-memory map current). */
+async function saveCurrencies(found: Map<string, string>, known: Map<string, string | null>): Promise<void> {
+  const changed = [...found].filter(([id, cur]) => known.get(id) !== cur);
+  if (!changed.length) return;
+  await getPool().query(
+    `update accounts a set currency = u.cur from unnest($2::text[], $3::text[]) as u(id, cur)
+     where a.platform = $1 and a.account_id = u.id`,
+    [PLATFORM, changed.map(([id]) => id), changed.map(([, c]) => c)],
+  );
+  for (const [id, cur] of changed) known.set(id, cur);
 }
 
 /**
@@ -217,8 +249,27 @@ async function pullMain(
 ): Promise<TmrTable> {
   // Spend and delivery do not depend on the query range, so quarters keep each call well under the timeout.
   const parts: TmrTable[] = [];
-  for (const q of quarterRanges(chunk)) parts.push(await query("Meta benchmark base", mainQuery(q.start, q.end), "SGD"));
+  for (const q of quarterRanges(chunk)) parts.push(await query("Meta benchmark base", mainQuery(q.start, q.end)));
   return concat(parts);
+}
+
+/**
+ * Daily local spend per account, used to weight exchange rates. Optional: if it fails the
+ * conversion falls back to monthly average rates, so the sync carries on.
+ */
+async function pullDailySpend(
+  query: NonNullable<SyncOptions["query"]>,
+  chunk: Range,
+  log: (msg: string) => void,
+): Promise<DailySpend[]> {
+  try {
+    const parts: TmrTable[] = [];
+    for (const q of quarterRanges(chunk)) parts.push(await query("Meta daily spend", dailySpendQuery(q.start, q.end)));
+    return parts.flatMap(parseDailySpend);
+  } catch (err) {
+    log(`sync: WARNING daily spend pull failed (${(err as Error).message}); using monthly average exchange rates`);
+    return [];
+  }
 }
 
 async function pullPurchases(

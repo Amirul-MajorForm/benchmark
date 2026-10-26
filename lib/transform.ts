@@ -5,18 +5,21 @@ export const SALES_OBJECTIVE = "OUTCOME_SALES";
 
 const DIMENSIONS = ["account_id", "campaign_objective", "optimization_goal", "year_month"];
 
-/** Query 3a: spend and delivery in SGD. */
+/**
+ * Query 3a: spend and delivery. The REST API returns spend in the account's own currency, so the
+ * account currency comes back as a dimension and mergeChunk converts spend to SGD.
+ */
 export function mainQuery(startDate: string, endDate: string): TmrQuery {
   return {
     dateRange: { startDate, endDate },
-    dimensions: DIMENSIONS,
+    dimensions: [...DIMENSIONS, "account_currency"],
     metrics: ["spend", "impressions", "clicks", "link_clicks"],
     reportParams: { includeAllItems: true },
   };
 }
 
 /**
- * Query 3b: purchases in account currency (no currencyCode). Only Sales rows are used; that is
+ * Query 3b: purchases in account currency. Only Sales rows are used; that is
  * applied in mergeChunk rather than as an API filter, which keeps the request format simple and
  * gives the same rows (objective is a dimension, so filtering it out afterwards changes nothing).
  */
@@ -102,11 +105,56 @@ const add = (a: number | null, b: number | null) => (a === null && b === null ? 
  * for Brand accounts. Rows with purchases but zero spend (late attribution) are kept.
  * purchase_value_sgd is filled in afterwards by applyCurrencyConversion, which needs all months.
  */
+/** SGD per 1 unit of the account's `currency` for one account-month (YYYY-MM-01). */
+export type ToSgd = (accountId: string, currency: string, month: string) => number;
+
+/** Daily local-currency spend per account, used to weight exchange rates (see lib/fx.ts). */
+export function dailySpendQuery(startDate: string, endDate: string): TmrQuery {
+  return {
+    dateRange: { startDate, endDate },
+    dimensions: ["account_id", "date", "account_currency"],
+    metrics: ["spend"],
+    reportParams: { includeAllItems: true },
+  };
+}
+
+/** "2025-06-02", "2025-06-02T00:00:00Z" or "20250602" -> "2025-06-02". */
+export function dayOf(v: unknown): string {
+  const s = String(v).trim();
+  const m = /^(\d{4})-?(\d{2})-?(\d{2})/.exec(s);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) throw new Error(`Unrecognised date value: ${s}`);
+  return d.toISOString().slice(0, 10);
+}
+
+export function parseDailySpend(table: TmrTable): { accountId: string; currency: string; day: string; spend: number }[] {
+  return records(table)
+    .filter((r) => r.account_currency && (num(r.spend) ?? 0) > 0)
+    .map((r) => ({
+      accountId: stripAct(r.account_id),
+      currency: String(r.account_currency).toUpperCase(),
+      day: dayOf(r.date),
+      spend: num(r.spend)!,
+    }));
+}
+
+/** Account currency for each account in a main-query result ("MYR"), as reported by Meta. */
+export function accountCurrencies(main: TmrTable): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of records(main)) {
+    if (r.account_currency) out.set(stripAct(r.account_id), String(r.account_currency).toUpperCase());
+  }
+  return out;
+}
+
 export function mergeChunk(
   main: TmrTable,
   purchases: TmrTable,
   accountTypes: Map<string, AccountType>,
   platform = "meta",
+  toSgd: ToSgd = () => 1,
+  knownCurrencies: Map<string, string | null> = new Map(),
 ): FactRow[] {
   const out = new Map<string, FactRow>();
   const get = (r: Record<string, unknown>) => {
@@ -122,7 +170,9 @@ export function mergeChunk(
 
   for (const r of records(main)) {
     const row = get(r);
-    row.spendSgd += num(r.spend) ?? 0;
+    const currency = r.account_currency ? String(r.account_currency) : knownCurrencies.get(row.accountId);
+    if (!currency) throw new Error(`No currency for account ${row.accountId}; cannot convert its spend to SGD`);
+    row.spendSgd += (num(r.spend) ?? 0) * toSgd(row.accountId, currency, row.month);
     row.impressions += num(r.impressions) ?? 0;
     row.clicks += num(r.clicks) ?? 0;
     row.linkClicks += num(r.link_clicks) ?? 0;

@@ -23,7 +23,6 @@ export type TmrQuery = {
 export type TmrRequest = {
   connectorId: string;
   accountIds: string[];
-  currencyCode?: string;
   title: string;
   query: TmrQuery;
 };
@@ -75,9 +74,6 @@ export function configFromEnv(env = process.env): TmrConfig {
   };
 }
 
-/** Metrics that carry money and should be converted when a currency is requested. */
-const MONEY_METRICS = new Set(["spend", "collab_ads_value_omni_purchase", "purchase_conversions_all"]);
-
 /** Connector prefix for field ids: TMR_FIELD_PREFIX, or "<connectorId>_" by default ("none" turns it off). */
 function fieldPrefixFor(cfg: Pick<TmrConfig, "fieldPrefix">, connectorId: string): string {
   if (cfg.fieldPrefix === "none") return "";
@@ -114,26 +110,7 @@ export function buildBody(cfg: Pick<TmrConfig, "teamId" | "fieldPrefix">, req: T
     dateRange,
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
-    // Currency: the widget query format documents dataOptions.currency (e.g. { currency: "USD" }).
-    // currencyCode / metricConfigs alone were ignored by the live API; they are kept as harmless extras.
-    ...(req.currencyCode
-      ? {
-          dataOptions: { currency: req.currencyCode },
-          currencyCode: req.currencyCode,
-          currency: req.currencyCode,
-          metricConfigs: Object.fromEntries(
-            req.query.metrics
-              .filter((m) => MONEY_METRICS.has(m))
-              .map((m) => [p(m), { unit: { type: "currency", subtype: req.currencyCode } }]),
-          ),
-        }
-      : {}),
-    ...(reportParams || req.currencyCode
-      ? {
-          [`${req.connectorId}Options`]: { ...reportParams, ...(req.currencyCode ? { currencyCode: req.currencyCode } : {}) },
-          reportParams,
-        }
-      : {}),
+    ...(reportParams ? { [`${req.connectorId}Options`]: reportParams, reportParams } : {}),
   };
 }
 

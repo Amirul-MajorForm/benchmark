@@ -109,7 +109,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
       <footer className="footnote">
         <h2>How these numbers work</h2>
         <ul>
-          <li><strong>SGD.</strong> All money is in Singapore dollars. Spend is converted by Two Minute Reports. Purchase values come in each account&apos;s own currency and are converted at that account&apos;s spend rate for the month (SGD spend ÷ local spend), or its all-time rate when it had no spend that month.</li>
+          <li><strong>SGD.</strong> All money is in Singapore dollars. Spend arrives in each ad account&apos;s own currency and is converted at daily exchange rates, weighted by how much was spent each day (rates from the open currency-api). Purchase values are converted at the same account-month rate, or the account&apos;s all-time rate when it had no spend that month. Totals can differ from Two Minutes&apos; own conversion by a fraction of a percent.</li>
           <li><strong>Spend-weighted ratios.</strong> CPM, CPC, CTR, CPA and ROAS are calculated from summed totals (for example CPM = total spend ÷ total impressions × 1,000), never by averaging ratios across accounts or months. CPC and CTR use link clicks.</li>
           <li><strong>Reach sits under Awareness.</strong> Optimisation goals are listed under the campaign objective they ran in, so Reach, Impressions and ThruPlay benchmarks are all found under Awareness.</li>
           <li><strong>&quot;Not reported&quot;</strong> is the goal Meta returns for Advantage+ and some legacy campaigns, which don&apos;t expose an optimisation goal.</li>

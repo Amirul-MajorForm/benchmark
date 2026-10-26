@@ -56,3 +56,12 @@ create table if not exists app_settings (
   value      text not null,
   updated_at timestamptz not null default now()
 );
+
+-- Daily exchange rates used to convert spend to SGD (the Two Minutes REST API returns local currency).
+create table if not exists fx_daily (
+  date         date not null,
+  currency     text not null,            -- ISO code, upper case
+  sgd_per_unit numeric not null,         -- SGD for 1 unit of currency
+  fetched_at   timestamptz not null default now(),
+  primary key (date, currency)
+);
