@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { View } from "@/lib/benchmarks";
 import { fmt } from "@/lib/format";
 
@@ -22,17 +22,21 @@ function niceTicks(max: number, count = 4): number[] {
 }
 
 export function CpmChart({ points }: { points: Point[] }) {
-  const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(720);
   const [hover, setHover] = useState<number | null>(null);
+  const observer = useRef<ResizeObserver | null>(null);
 
-  useEffect(() => {
-    const el = ref.current;
+  // Callback ref: (re)attach whenever the chart element mounts. A plain mount-time effect missed it
+  // when the chart first rendered empty and only later got data, leaving it stuck at 720px.
+  const ref = useCallback((el: HTMLDivElement | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) => setWidth(Math.max(280, Math.floor(entry.contentRect.width))));
-    ro.observe(el);
-    return () => ro.disconnect();
+    setWidth(Math.max(280, Math.floor(el.clientWidth)));
+    observer.current = new ResizeObserver(([entry]) => setWidth(Math.max(280, Math.floor(entry.contentRect.width))));
+    observer.current.observe(el);
   }, []);
+  useEffect(() => () => observer.current?.disconnect(), []);
 
   if (!points.some((p) => p.cpm !== null)) {
     return <p className="muted">No impressions for these filters in any month.</p>;
@@ -45,7 +49,8 @@ export function CpmChart({ points }: { points: Point[] }) {
   const band = plotW / points.length;
   const barW = Math.min(24, Math.max(4, band - 2)); // >= 2px surface gap between adjacent bars
   const y = (v: number) => PAD.top + plotH - (v / yMax) * plotH;
-  const labelEvery = band >= 44 ? 1 : band >= 22 ? 2 : 3;
+  // Month labels ("Apr '25") need ~56px each; past every other month, step in calendar quarters/halves/years.
+  const labelEvery = [1, 2, 3, 6, 12].find((n) => band * n >= 56) ?? 12;
   const active = hover === null ? null : points[hover];
 
   return (
@@ -66,7 +71,8 @@ export function CpmChart({ points }: { points: Point[] }) {
         ))}
         {points.map((p, i) => {
           const cx = PAD.left + band * i + band / 2;
-          const showLabel = i % labelEvery === 0;
+          const monthIndex = Number(p.month.slice(5, 7)) - 1;
+          const showLabel = labelEvery >= 3 ? monthIndex % labelEvery === 0 : i % labelEvery === 0;
           const h = p.cpm === null ? 0 : Math.max(1, plotH - (y(p.cpm) - PAD.top));
           const r = Math.min(4, barW / 2, h);
           const x0 = cx - barW / 2;

@@ -114,6 +114,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
           <li><strong>Reach sits under Awareness.</strong> Optimisation goals are listed under the campaign objective they ran in, so Reach, Impressions and ThruPlay benchmarks are all found under Awareness.</li>
           <li><strong>&quot;Not reported&quot;</strong> is the goal Meta returns for Advantage+ and some legacy campaigns, which don&apos;t expose an optimisation goal.</li>
           <li><strong>CPAS</strong> (Collaborative Performance Advertising Solution) accounts run ads with a retailer such as Shopee or Lazada, which reports the sales back. Brand accounts are a client&apos;s own ad accounts.</li>
+          <li><strong>CPL (cost per lead)</strong> = Leads-objective spend ÷ Meta&apos;s &quot;Leads (all)&quot; (instant forms, Messenger and website leads), from accounts that report any leads, at each account&apos;s default attribution. It is shown for Leads and for All objectives, and blank when there are no leads.</li>
           <li><strong>Purchases.</strong> CPAS accounts use the retailer&apos;s collaborative-ads purchases and value; Brand accounts use Meta&apos;s all-purchases count and value. Attribution is each account&apos;s default setting. CPA and ROAS only count Sales-objective spend from accounts that report purchases, and show blank when there are none. Recent months can shift slightly as Meta restates data.</li>
         </ul>
       </footer>

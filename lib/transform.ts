@@ -13,7 +13,7 @@ export function mainQuery(startDate: string, endDate: string): TmrQuery {
   return {
     dateRange: { startDate, endDate },
     dimensions: [...DIMENSIONS, "account_currency"],
-    metrics: ["spend", "impressions", "clicks", "link_clicks"],
+    metrics: ["spend", "impressions", "clicks", "link_clicks", "lead"],
     reportParams: { includeAllItems: true },
   };
 }
@@ -44,6 +44,8 @@ export type FactRow = {
   impressions: number;
   clicks: number;
   linkClicks: number;
+  /** Meta "Leads (all)": instant forms, Messenger and website leads. */
+  leads: number | null;
   spendNative: number | null;
   purchases: number | null;
   purchaseValueNative: number | null;
@@ -90,7 +92,7 @@ function key(accountId: string, objective: string, goal: string, month: string) 
 function blankFact(platform: string, accountId: string, objective: string, goal: string, month: string): FactRow {
   return {
     platform, accountId, objective, goal, month,
-    spendSgd: 0, impressions: 0, clicks: 0, linkClicks: 0,
+    spendSgd: 0, impressions: 0, clicks: 0, linkClicks: 0, leads: null,
     spendNative: null, purchases: null, purchaseValueNative: null, purchaseValueSgd: null,
   };
 }
@@ -176,6 +178,7 @@ export function mergeChunk(
     row.impressions += num(r.impressions) ?? 0;
     row.clicks += num(r.clicks) ?? 0;
     row.linkClicks += num(r.link_clicks) ?? 0;
+    row.leads = add(row.leads, num(r.lead));
   }
 
   for (const r of records(purchases)) {

@@ -18,8 +18,8 @@ import {
 export const SYNC_FROM = "2025-01-01";
 const PLATFORM = "meta";
 const LOCK_KEY = 4_206_031; // pg advisory lock id for the sync job
-/** Bump to make the next sync re-pull every half-year (3: spend converted to SGD by us, see lib/fx.ts). */
-const DATA_VERSION = "3";
+/** Bump to make the next sync re-pull every half-year (3: spend converted to SGD by us; 4: leads for CPL). */
+const DATA_VERSION = "4";
 
 export type Range = { start: string; end: string };
 
@@ -329,18 +329,18 @@ export async function insertFacts(client: PoolClient, facts: FactRow[]): Promise
   const col = <K extends keyof FactRow>(k: K) => facts.map((f) => f[k]);
   await client.query(
     `insert into fact_monthly (platform, account_id, objective, goal, month, spend_sgd, impressions, clicks, link_clicks,
-       spend_native, purchases, purchase_value_native, purchase_value_sgd, synced_at)
+       spend_native, purchases, purchase_value_native, purchase_value_sgd, leads, synced_at)
      select *, now() from unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::numeric[], $7::bigint[],
-       $8::bigint[], $9::bigint[], $10::numeric[], $11::numeric[], $12::numeric[], $13::numeric[])
+       $8::bigint[], $9::bigint[], $10::numeric[], $11::numeric[], $12::numeric[], $13::numeric[], $14::numeric[])
      on conflict (platform, account_id, objective, goal, month) do update set
        spend_sgd = excluded.spend_sgd, impressions = excluded.impressions, clicks = excluded.clicks,
        link_clicks = excluded.link_clicks, spend_native = excluded.spend_native, purchases = excluded.purchases,
        purchase_value_native = excluded.purchase_value_native, purchase_value_sgd = excluded.purchase_value_sgd,
-       synced_at = now()`,
+       leads = excluded.leads, synced_at = now()`,
     [
       col("platform"), col("accountId"), col("objective"), col("goal"), col("month"), col("spendSgd"),
       col("impressions"), col("clicks"), col("linkClicks"), col("spendNative"), col("purchases"),
-      col("purchaseValueNative"), col("purchaseValueSgd"),
+      col("purchaseValueNative"), col("purchaseValueSgd"), col("leads"),
     ],
   );
 }
@@ -355,7 +355,7 @@ export async function recomputeSgdValues(currencies: Map<string, string | null>)
   );
   const facts: FactRow[] = rows.map((r) => ({
     platform: PLATFORM, accountId: r.account_id, objective: r.objective, goal: r.goal, month: r.month,
-    spendSgd: Number(r.spend_sgd), impressions: 0, clicks: 0, linkClicks: 0,
+    spendSgd: Number(r.spend_sgd), impressions: 0, clicks: 0, linkClicks: 0, leads: null,
     spendNative: r.spend_native === null ? null : Number(r.spend_native), purchases: null,
     purchaseValueNative: r.purchase_value_native === null ? null : Number(r.purchase_value_native),
     purchaseValueSgd: null,

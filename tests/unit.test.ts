@@ -28,7 +28,7 @@ describe("transform", () => {
 
   test("columns map by position, not by header label", () => {
     const q = mainQuery("2025-06-01", "2025-06-30");
-    const json = { connectorResults: [{ results: [{ data: { headers: ["A", "B", "C", "D", "E", "F", "G", "H", "I"], rows: [[1, 2, 3, 4, 5, 6, 7, 8, 9]] } }] }] };
+    const json = { connectorResults: [{ results: [{ data: { headers: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"], rows: [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]] } }] }] };
     assert.deepEqual(extractTable(json, { query: q }).fields, [...q.dimensions, ...q.metrics]);
     assert.throws(() => extractTable({ connectorResults: [{ results: [{ data: { headers: ["A"], rows: [[1]] } }] }] }, { query: q }));
   });
@@ -56,7 +56,7 @@ describe("transform", () => {
   test("currency: monthly rate, then all-time fallback, then 1 for SGD accounts", () => {
     const r = (accountId: string, month: string, spendSgd: number, spendNative: number | null, value: number | null): FactRow => ({
       platform: "meta", accountId, objective: "OUTCOME_SALES", goal: "X", month, spendSgd, impressions: 0, clicks: 0,
-      linkClicks: 0, spendNative, purchases: 1, purchaseValueNative: value, purchaseValueSgd: null,
+      linkClicks: 0, leads: null, spendNative, purchases: 1, purchaseValueNative: value, purchaseValueSgd: null,
     });
     const rows = [
       r("myr", "2025-01-01", 30, 100, 1000), // rate 0.3
@@ -101,7 +101,7 @@ describe("sync planning", () => {
 describe("currency check", () => {
   const row = (accountId: string, spendSgd: number, spendNative: number): FactRow => ({
     platform: "meta", accountId, objective: "OUTCOME_SALES", goal: "X", month: "2025-04-01", spendSgd, impressions: 0,
-    clicks: 0, linkClicks: 0, spendNative, purchases: 1, purchaseValueNative: 1, purchaseValueSgd: null,
+    clicks: 0, linkClicks: 0, leads: null, spendNative, purchases: 1, purchaseValueNative: 1, purchaseValueSgd: null,
   });
   const accounts = [{ accountId: "my", currency: "MYR" }, { accountId: "sg", currency: "SGD" }, { accountId: "x", currency: null }];
   const chunk = { start: "2025-01-01", end: "2025-06-30" };
@@ -135,7 +135,7 @@ describe("view", () => {
   const fact = (o: Partial<Fact>): Fact => ({
     platform: "meta", accountId: "1", accountName: "A", client: "Oatside", market: "SG", accountType: "Brand",
     objective: "OUTCOME_AWARENESS", goal: "IMPRESSIONS", month: "2025-05", spendSgd: 100, impressions: 100_000,
-    clicks: 10, linkClicks: 5, purchases: 0, purchaseValueSgd: 0, ...o,
+    clicks: 10, linkClicks: 5, purchases: 0, purchaseValueSgd: 0, leads: 0, ...o,
   });
 
   test("empty state names what did run when the goal is loosened", () => {
@@ -157,5 +157,21 @@ describe("view", () => {
     assert.equal(cpm.previous, 1);
     assert.equal(cpm.change, 0);
     assert.deepEqual(view.chart.map((c) => c.selected), [false, false, true, true, true]);
+  });
+
+  test("CPL: Leads spend from lead-reporting accounts ÷ leads; tiles follow the objective", () => {
+    const facts = [
+      fact({ accountId: "ym", objective: "OUTCOME_LEADS", goal: "LEAD_GENERATION", spendSgd: 900, leads: 100 }),
+      fact({ accountId: "sp", objective: "OUTCOME_LEADS", goal: "LEAD_GENERATION", spendSgd: 100, leads: 0 }), // never reports leads
+      fact({ accountId: "ym", objective: "OUTCOME_TRAFFIC", goal: "LINK_CLICKS", spendSgd: 500, leads: 7 }), // not Leads objective
+    ];
+    const leads = buildView(facts, { ...DEFAULT_FILTERS, objective: "OUTCOME_LEADS", goal: "" });
+    assert.equal(leads.metrics.cpl, 9); // 900 / 100: the untracked account and Traffic leads stay out
+    assert.deepEqual(leads.tiles.map((t) => t.key), ["cpm", "cpc", "ctr", "spend", "impressions", "cpl"]);
+    assert.match(leads.takeaway!, /CPL S\$9\.00 on 100 leads\.$/);
+    const awareness = buildView([fact({})], { ...DEFAULT_FILTERS, goal: "" });
+    assert.deepEqual(awareness.tiles.map((t) => t.key), ["cpm", "cpc", "ctr", "spend", "impressions"]);
+    const all = buildView(facts, { ...DEFAULT_FILTERS, objective: "", goal: "" });
+    assert.deepEqual(all.tiles.map((t) => t.key).slice(-3), ["cpa", "roas", "cpl"]);
   });
 });

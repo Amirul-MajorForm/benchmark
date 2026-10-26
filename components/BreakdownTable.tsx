@@ -14,6 +14,7 @@ const COLUMNS: { key: ColumnKey; label: string }[] = [
   { key: "ctr", label: "CTR" },
   { key: "cpa", label: "CPA" },
   { key: "roas", label: "ROAS" },
+  { key: "cpl", label: "CPL" },
 ];
 
 const value = (r: Row, k: ColumnKey): number | null =>

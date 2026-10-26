@@ -65,3 +65,6 @@ create table if not exists fx_daily (
   fetched_at   timestamptz not null default now(),
   primary key (date, currency)
 );
+
+-- Leads (Meta "Leads (all)") for CPL. Added after launch, hence the alter.
+alter table fact_monthly add column if not exists leads numeric;
