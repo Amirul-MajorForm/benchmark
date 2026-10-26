@@ -185,13 +185,18 @@ export function extractTable(json: unknown, req: Pick<TmrRequest, "query"> & { c
     return { fields, rows: found.rows as unknown[][] };
   }
 
-  const keys = Object.keys(found.rows[0] as object);
+  // Object rows leave out empty fields, so look across every row; a metric that never appears is
+  // empty for the whole range (e.g. Brand purchase fields when only CPAS accounts bought).
+  const keys = [...new Set(found.rows.flatMap((r) => Object.keys(r as object)))];
   const map = fields.map((f) => keyFor(keys, f));
-  const missing = fields.filter((_, i) => !map[i]);
-  if (missing.length) {
-    throw new TmrError(`TMR rows are missing ${missing.join(", ")}; row keys: ${keys.join(", ")}`);
+  const missingDims = req.query.dimensions.filter((f) => !map[fields.indexOf(f)]);
+  if (missingDims.length) {
+    throw new TmrError(`TMR rows are missing dimension ${missingDims.join(", ")}; row keys: ${keys.join(", ")}`);
   }
-  return { fields, rows: found.rows.map((r) => map.map((k) => (r as Record<string, unknown>)[k!])) };
+  return {
+    fields,
+    rows: found.rows.map((r) => map.map((k) => (k === undefined ? null : ((r as Record<string, unknown>)[k] ?? null)))),
+  };
 }
 
 function stringify(v: unknown): string {

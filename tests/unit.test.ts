@@ -4,13 +4,19 @@ import { buildView, DEFAULT_FILTERS, filtersToQuery, parseFilters, parsePeriod, 
 import type { Fact } from "../lib/metrics";
 import { halfYearChunks, planChunks, quarterRanges, recentWindowStart } from "../lib/sync";
 import { extractTable } from "../lib/tmr";
-import { applyCurrencyConversion, type FactRow, mainQuery, mergeChunk, monthStart, num } from "../lib/transform";
+import { applyCurrencyConversion, type FactRow, mainQuery, mergeChunk, monthStart, num, stripAct } from "../lib/transform";
 
 describe("transform", () => {
   test("year_month conversion", () => {
     assert.equal(monthStart("2025-Feb"), "2025-02-01");
     assert.equal(monthStart("2026-Oct"), "2026-10-01");
     assert.equal(monthStart("2025-07"), "2025-07-01");
+    assert.equal(monthStart("2025-07-01"), "2025-07-01");
+    assert.equal(monthStart("Feb 2025"), "2025-02-01");
+    assert.equal(monthStart("September 2026"), "2026-09-01");
+    assert.equal(stripAct("fads_act_60873128"), "60873128");
+    assert.equal(stripAct("act_60873128"), "60873128");
+    assert.equal(stripAct("60873128"), "60873128");
   });
 
   test("empty cells are null", () => {

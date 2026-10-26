@@ -155,6 +155,17 @@ describe("response shapes", () => {
     assert.deepEqual(t.rows, [["1", "2025-Jun", 9, 5]]);
   });
 
+  test("object rows omit empty fields: missing metrics are null, missing dimensions are an error", () => {
+    const t = extractTable({ success: true, data: [
+      { fads_account_id: "1", fads_year_month: "2025-Jun", fads_clicks: 9 },
+      { fads_account_id: "2", fads_year_month: "2025-Jun", fads_clicks: 4, fads_link_clicks: 2 },
+    ] }, q);
+    assert.deepEqual(t.rows, [["1", "2025-Jun", 9, null], ["2", "2025-Jun", 4, 2]]);
+    const noLink = extractTable({ data: [{ fads_account_id: "1", fads_year_month: "2025-Jun", fads_clicks: 9 }] }, q);
+    assert.deepEqual(noLink.rows, [["1", "2025-Jun", 9, null]]);
+    assert.throws(() => extractTable({ data: [{ fads_account_id: "1", fads_clicks: 9 }] }, q), /missing dimension fads?_?year_month|missing dimension year_month/);
+  });
+
   test("header ids in a different order are reordered", () => {
     const t = extractTable({ data: { headers: ["fads_clicks", "fads_account_id", "fads_link_clicks", "fads_year_month"], rows: [[9, "1", 5, "2025-Jun"]] } }, q);
     assert.deepEqual(t.rows, [["1", "2025-Jun", 9, 5]]);

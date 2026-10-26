@@ -57,13 +57,16 @@ export function monthStart(yearMonth: string): string {
   const s = String(yearMonth).trim();
   let m = /^(\d{4})-([A-Za-z]{3})/.exec(s);
   if (m && MONTHS[m[2].toLowerCase()]) return `${m[1]}-${MONTHS[m[2].toLowerCase()]}-01`;
+  m = /^([A-Za-z]{3})[a-z]*\.?\s+(\d{4})$/.exec(s); // "Feb 2025", "February 2025"
+  if (m && MONTHS[m[1].toLowerCase()]) return `${m[2]}-${MONTHS[m[1].toLowerCase()]}-01`;
   m = /^(\d{4})-?(\d{2})/.exec(s);
   if (m) return `${m[1]}-${m[2]}-01`;
   throw new Error(`Unrecognised year_month value: ${yearMonth}`);
 }
 
+/** "act_123", "fads_act_123" and "123" all become "123". */
 export function stripAct(id: unknown): string {
-  return String(id).replace(/^act_/, "");
+  return String(id).trim().replace(/^[a-z]+_(?=act_|\d)/, "").replace(/^act_/, "");
 }
 
 /** "" / null / undefined -> null; numeric strings -> numbers. */
