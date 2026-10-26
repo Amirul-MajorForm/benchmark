@@ -127,12 +127,17 @@ describe("REST request body", () => {
     assert.deepEqual((body as any).fadsOptions, { includeAllItems: true });
   });
 
-  test("purchases query: filter prefixed, no currency", () => {
+  test("purchases query: no API filter (Sales rows picked in mergeChunk), no currency", () => {
     const body = buildBody(c, { connectorId: "fads", accountIds: ["act_1"], title: "t", query: purchasesQuery("2025-01-01", "2025-06-30") });
-    assert.equal(body.filters[0].field, "fads_campaign_objective");
-    assert.equal(body.filters[0].operator, "equals");
-    assert.equal(body.filters[0].value, "OUTCOME_SALES");
+    assert.deepEqual(body.filters, []);
     assert.equal(body.currencyCode, undefined);
+  });
+
+  test("filters, when used, carry fieldId", () => {
+    const q = { ...mainQuery("2025-01-01", "2025-01-31"), filters: [{ filterField: "campaign_objective", operator: "equals" as const, expression: "OUTCOME_SALES" }] };
+    const body = buildBody(c, { connectorId: "fads", accountIds: ["act_1"], title: "t", query: q });
+    assert.equal(body.filters[0].fieldId, "fads_campaign_objective");
+    assert.equal(body.filters[0].value, "OUTCOME_SALES");
   });
 
   test("TMR_FIELD_PREFIX=none sends raw field ids (accounts stay prefixed)", () => {

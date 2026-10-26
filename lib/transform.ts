@@ -15,13 +15,16 @@ export function mainQuery(startDate: string, endDate: string): TmrQuery {
   };
 }
 
-/** Query 3b: purchases in account currency (no currencyCode), Sales objective only. */
+/**
+ * Query 3b: purchases in account currency (no currencyCode). Only Sales rows are used; that is
+ * applied in mergeChunk rather than as an API filter, which keeps the request format simple and
+ * gives the same rows (objective is a dimension, so filtering it out afterwards changes nothing).
+ */
 export function purchasesQuery(startDate: string, endDate: string): TmrQuery {
   return {
     dateRange: { startDate, endDate },
     dimensions: DIMENSIONS,
     metrics: ["spend", "all_purchases", "purchase_conversions_all", "collab_action_omni_purchase", "collab_ads_value_omni_purchase"],
-    filters: [{ filterField: "campaign_objective", operator: "equals", expression: SALES_OBJECTIVE }],
     reportParams: { includeAllItems: true },
   };
 }
@@ -123,6 +126,7 @@ export function mergeChunk(
   }
 
   for (const r of records(purchases)) {
+    if (String(r.campaign_objective) !== SALES_OBJECTIVE) continue; // purchases are Sales-only
     const accountId = stripAct(r.account_id);
     const type = accountTypes.get(accountId);
     if (!type) continue; // not in the mapping: nothing to attribute it to

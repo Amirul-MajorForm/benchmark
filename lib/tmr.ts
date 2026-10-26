@@ -99,6 +99,7 @@ export function buildBody(cfg: Pick<TmrConfig, "teamId" | "fieldPrefix">, req: T
     metrics: req.query.metrics.map(p),
     dimensions: req.query.dimensions.map(p),
     filters: (req.query.filters ?? []).map((f) => ({
+      fieldId: p(f.filterField),
       field: p(f.filterField),
       filterField: p(f.filterField),
       operator: f.operator,

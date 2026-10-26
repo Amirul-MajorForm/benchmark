@@ -34,6 +34,7 @@ describe("transform", () => {
       rows: [
         ["111", "OUTCOME_SALES", "OFFSITE_CONVERSIONS", "2025-Jan", 0, 1, "", 7, 70],
         ["222", "OUTCOME_SALES", "OFFSITE_CONVERSIONS", "2025-Jan", 10, 3, 30, "", ""],
+        ["222", "OUTCOME_TRAFFIC", "LINK_CLICKS", "2025-Jan", 99, 5, 50, "", ""], // not Sales: ignored
       ],
     };
     const rows = mergeChunk(main, purchases, new Map([["111", "CPAS"], ["222", "Brand"]]));
@@ -42,6 +43,7 @@ describe("transform", () => {
     assert.equal(byId["111"].purchaseValueNative, 70);
     assert.equal(byId["111"].spendSgd, 0);
     assert.equal(byId["222"].purchases, 3);
+    assert.equal(rows.length, 2);
     assert.equal(byId["222"].purchaseValueNative, 30);
   });
 
