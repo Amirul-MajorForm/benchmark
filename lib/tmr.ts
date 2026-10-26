@@ -114,10 +114,11 @@ export function buildBody(cfg: Pick<TmrConfig, "teamId" | "fieldPrefix">, req: T
     dateRange,
     startDate: dateRange.startDate,
     endDate: dateRange.endDate,
-    // Currency: dashboards store it per metric (metricConfigs.<field>.unit = currency/SGD); the
-    // top-level spellings are kept in case the API also reads them.
+    // Currency: the widget query format documents dataOptions.currency (e.g. { currency: "USD" }).
+    // currencyCode / metricConfigs alone were ignored by the live API; they are kept as harmless extras.
     ...(req.currencyCode
       ? {
+          dataOptions: { currency: req.currencyCode },
           currencyCode: req.currencyCode,
           currency: req.currencyCode,
           metricConfigs: Object.fromEntries(

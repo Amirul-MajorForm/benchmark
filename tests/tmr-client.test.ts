@@ -123,6 +123,7 @@ describe("REST request body", () => {
     assert.deepEqual(body.dimensions, ["fads_account_id", "fads_campaign_objective", "fads_optimization_goal", "fads_year_month"]);
     assert.deepEqual(body.metrics, ["fads_spend", "fads_impressions", "fads_clicks", "fads_link_clicks"]);
     assert.deepEqual(body.dateRange, { startDate: "2025-01-01", endDate: "2025-03-31" });
+    assert.deepEqual((body as any).dataOptions, { currency: "SGD" });
     assert.equal(body.currencyCode, "SGD");
     assert.deepEqual((body as any).metricConfigs, { fads_spend: { unit: { type: "currency", subtype: "SGD" } } });
     assert.deepEqual((body as any).fadsOptions, { includeAllItems: true, currencyCode: "SGD" });
@@ -133,6 +134,7 @@ describe("REST request body", () => {
     assert.deepEqual(body.filters, []);
     assert.equal(body.currencyCode, undefined);
     assert.equal((body as any).metricConfigs, undefined);
+    assert.equal((body as any).dataOptions, undefined);
   });
 
   test("filters, when used, carry fieldId", () => {
