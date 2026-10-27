@@ -20,6 +20,7 @@ export type Fact = {
   purchases: number;
   purchaseValueSgd: number;
   leads: number;
+  installs: number;
 };
 
 export type Totals = {
@@ -34,6 +35,9 @@ export type Totals = {
   /** Leads-objective spend from accounts that have ever reported a lead. */
   spendLeads: number;
   leads: number;
+  /** App Promotion spend from accounts that have ever reported an install. */
+  spendInstalls: number;
+  installs: number;
 };
 
 export type Metrics = {
@@ -43,17 +47,21 @@ export type Metrics = {
   cpa: number | null;
   roas: number | null;
   cpl: number | null;
+  cpi: number | null;
 };
 
 export const SALES = "OUTCOME_SALES";
 export const LEADS = "OUTCOME_LEADS";
+export const APP_PROMOTION = "OUTCOME_APP_PROMOTION";
 
 const salesKey = (f: Pick<Fact, "platform" | "accountId">) => `sales|${f.platform}|${f.accountId}`;
 const leadsKey = (f: Pick<Fact, "platform" | "accountId">) => `leads|${f.platform}|${f.accountId}`;
+const installsKey = (f: Pick<Fact, "platform" | "accountId">) => `installs|${f.platform}|${f.accountId}`;
 
 /**
  * Accounts whose conversions count, across all synced data: Sales accounts that report any
- * purchases (for CPA/ROAS) and Leads accounts that report any leads (for CPL). Accounts with no
+ * purchases (for CPA/ROAS), Leads accounts that report any leads (for CPL) and App Promotion
+ * accounts that report any installs (for CPI). Accounts with no
  * tracking would otherwise drag those ratios down.
  */
 export function trackedAccounts(all: Fact[]): Set<string> {
@@ -61,12 +69,13 @@ export function trackedAccounts(all: Fact[]): Set<string> {
   for (const f of all) {
     if (f.objective === SALES) counts.set(salesKey(f), (counts.get(salesKey(f)) ?? 0) + f.purchases);
     if (f.objective === LEADS) counts.set(leadsKey(f), (counts.get(leadsKey(f)) ?? 0) + f.leads);
+    if (f.objective === APP_PROMOTION) counts.set(installsKey(f), (counts.get(installsKey(f)) ?? 0) + f.installs);
   }
   return new Set([...counts].filter(([, n]) => n > 0).map(([k]) => k));
 }
 
 export function emptyTotals(): Totals {
-  return { spend: 0, impressions: 0, clicks: 0, linkClicks: 0, spendTracked: 0, purchases: 0, purchaseValue: 0, spendLeads: 0, leads: 0 };
+  return { spend: 0, impressions: 0, clicks: 0, linkClicks: 0, spendTracked: 0, purchases: 0, purchaseValue: 0, spendLeads: 0, leads: 0, spendInstalls: 0, installs: 0 };
 }
 
 export function addFact(t: Totals, f: Fact, tracked: Set<string>): Totals {
@@ -82,6 +91,10 @@ export function addFact(t: Totals, f: Fact, tracked: Set<string>): Totals {
   if (f.objective === LEADS && tracked.has(leadsKey(f))) {
     t.spendLeads += f.spendSgd;
     t.leads += f.leads;
+  }
+  if (f.objective === APP_PROMOTION && tracked.has(installsKey(f))) {
+    t.spendInstalls += f.spendSgd;
+    t.installs += f.installs;
   }
   return t;
 }
@@ -101,12 +114,13 @@ export function metrics(t: Totals): Metrics {
     cpa: t.purchases > 0 ? t.spendTracked / t.purchases : null,
     roas: t.purchases > 0 && t.spendTracked > 0 ? t.purchaseValue / t.spendTracked : null,
     cpl: t.leads > 0 ? t.spendLeads / t.leads : null,
+    cpi: t.installs > 0 ? t.spendInstalls / t.installs : null,
   };
 }
 
 export type MetricKey = keyof Metrics | "spend" | "impressions";
 
-/** Lower is better for costs (incl. CPL); higher is better for CTR and ROAS. Volume has no direction. */
+/** Lower is better for costs (incl. CPL, CPI); higher is better for CTR and ROAS. Volume has no direction. */
 export const BETTER: Record<MetricKey, "lower" | "higher" | null> = {
   cpm: "lower",
   cpc: "lower",
@@ -114,6 +128,7 @@ export const BETTER: Record<MetricKey, "lower" | "higher" | null> = {
   ctr: "higher",
   roas: "higher",
   cpl: "lower",
+  cpi: "lower",
   spend: null,
   impressions: null,
 };

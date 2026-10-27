@@ -13,7 +13,7 @@ export function mainQuery(startDate: string, endDate: string): TmrQuery {
   return {
     dateRange: { startDate, endDate },
     dimensions: [...DIMENSIONS, "account_currency"],
-    metrics: ["spend", "impressions", "clicks", "link_clicks", "lead"],
+    metrics: ["spend", "impressions", "clicks", "link_clicks", "lead", "all_app_install"],
     reportParams: { includeAllItems: true },
   };
 }
@@ -46,6 +46,8 @@ export type FactRow = {
   linkClicks: number;
   /** Meta "Leads (all)": instant forms, Messenger and website leads. */
   leads: number | null;
+  /** Meta "App Installs (all)". */
+  installs: number | null;
   spendNative: number | null;
   purchases: number | null;
   purchaseValueNative: number | null;
@@ -92,7 +94,7 @@ function key(accountId: string, objective: string, goal: string, month: string) 
 function blankFact(platform: string, accountId: string, objective: string, goal: string, month: string): FactRow {
   return {
     platform, accountId, objective, goal, month,
-    spendSgd: 0, impressions: 0, clicks: 0, linkClicks: 0, leads: null,
+    spendSgd: 0, impressions: 0, clicks: 0, linkClicks: 0, leads: null, installs: null,
     spendNative: null, purchases: null, purchaseValueNative: null, purchaseValueSgd: null,
   };
 }
@@ -179,6 +181,7 @@ export function mergeChunk(
     row.clicks += num(r.clicks) ?? 0;
     row.linkClicks += num(r.link_clicks) ?? 0;
     row.leads = add(row.leads, num(r.lead));
+    row.installs = add(row.installs, num(r.all_app_install));
   }
 
   for (const r of records(purchases)) {

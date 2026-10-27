@@ -1,7 +1,7 @@
 import { getPool } from "./db";
 import { type FilterKey, type Filters, type Period, nextMonth, parsePeriod, previousPeriod } from "./filters";
 import { goalLabel, marketLabel, objectiveLabel, platformLabel } from "./labels";
-import { BETTER, type Fact, LEADS, type MetricKey, type Metrics, SALES, type Totals, metrics, totals, trackedAccounts } from "./metrics";
+import { APP_PROMOTION, BETTER, type Fact, LEADS, type MetricKey, type Metrics, SALES, type Totals, metrics, totals, trackedAccounts } from "./metrics";
 
 export * from "./filters";
 
@@ -62,7 +62,8 @@ export async function loadFacts(syncKey?: string | null): Promise<Fact[]> {
             f.objective, f.goal, to_char(f.month, 'YYYY-MM') as month,
             f.spend_sgd::float8 as spend, f.impressions::float8 as impressions, f.clicks::float8 as clicks,
             f.link_clicks::float8 as link_clicks, coalesce(f.purchases, 0)::float8 as purchases,
-            coalesce(f.purchase_value_sgd, 0)::float8 as value, coalesce(f.leads, 0)::float8 as leads
+            coalesce(f.purchase_value_sgd, 0)::float8 as value, coalesce(f.leads, 0)::float8 as leads,
+            coalesce(f.installs, 0)::float8 as installs
      from fact_monthly f
      join accounts a on a.platform = f.platform and a.account_id = f.account_id`,
   );
@@ -83,6 +84,7 @@ export async function loadFacts(syncKey?: string | null): Promise<Fact[]> {
     purchases: r.purchases,
     purchaseValueSgd: r.value,
     leads: r.leads,
+    installs: r.installs,
   }));
   cache = { key, at: Date.now(), facts };
   return facts;
@@ -226,10 +228,13 @@ export function buildView(facts: Fact[], filters: Filters): View {
     tile("cpa", "CPA", m.cpa, pm?.cpa ?? null),
     tile("roas", "ROAS", m.roas, pm?.roas ?? null),
     tile("cpl", "CPL", m.cpl, pm?.cpl ?? null),
+    tile("cpi", "CPI", m.cpi, pm?.cpi ?? null),
   ].filter((x) => {
-    // Conversion tiles only where they can apply: CPA/ROAS for Sales, CPL for Leads (both when All).
+    // Conversion tiles only where they can apply: CPA/ROAS for Sales, CPL for Leads, CPI for
+    // App promotion (all of them when no objective is picked).
     if (x.key === "cpa" || x.key === "roas") return !filters.objective || filters.objective === SALES;
     if (x.key === "cpl") return !filters.objective || filters.objective === LEADS;
+    if (x.key === "cpi") return !filters.objective || filters.objective === APP_PROMOTION;
     return true;
   });
 
@@ -241,7 +246,8 @@ export function buildView(facts: Fact[], filters: Filters): View {
     const cpm = m.cpm !== null ? `CPM ${sgd2(m.cpm)}` : "no impressions";
     const sales = m.cpa !== null ? `; CPA ${sgd2(m.cpa)}, ROAS ${m.roas?.toFixed(2)}x` : "";
     const leads = m.cpl !== null ? `; CPL ${sgd2(m.cpl)} on ${Math.round(t.leads).toLocaleString("en-SG")} leads` : "";
-    takeaway = `${describeSelection(filters, period).join(" · ")}: ${cpm} on ${sgd0(t.spend)} spend${where}${sales}${leads}.`;
+    const installs = m.cpi !== null ? `; CPI ${sgd2(m.cpi)} on ${Math.round(t.installs).toLocaleString("en-SG")} installs` : "";
+    takeaway = `${describeSelection(filters, period).join(" · ")}: ${cpm} on ${sgd0(t.spend)} spend${where}${sales}${leads}${installs}.`;
   }
 
   // CPM by month for the current filters, ignoring period.

@@ -22,16 +22,16 @@ export function fixtureQuery() {
     if (!isPurchases && startDate === "2025-04-01" && endDate === "2025-06-30") {
       // Recorded with currencyCode SGD through MCP, so spend is already SGD: label every row "SGD"
       // (the account_currency column the live query asks for) and the conversion is a no-op.
-      // The recording predates the lead metric, so leads are empty.
+      // The recording predates the lead and install metrics, so those are empty.
       const recorded = {
         ...q,
         dimensions: q.dimensions.filter((d) => d !== "account_currency"),
-        metrics: q.metrics.filter((m) => m !== "lead"),
+        metrics: q.metrics.filter((m) => m !== "lead" && m !== "all_app_install"),
       };
       const t = extractTable(main, { query: recorded });
       const fields = [...q.dimensions, ...q.metrics];
       const from = [...recorded.dimensions, ...recorded.metrics];
-      const fill: Record<string, unknown> = { account_currency: "SGD", lead: null };
+      const fill: Record<string, unknown> = { account_currency: "SGD", lead: null, all_app_install: null };
       return { fields, rows: t.rows.map((r) => fields.map((f) => (f in fill ? fill[f] : r[from.indexOf(f)]))) };
     }
     return { fields: [...q.dimensions, ...q.metrics], rows: [] };

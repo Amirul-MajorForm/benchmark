@@ -12,13 +12,13 @@ export const fmt = {
     v >= 1e6 ? `${n(v / 1e6, 1)}M` : v >= 1e3 ? `${n(v / 1e3, 1)}K` : n(v, 0),
 };
 
-export type ColumnKey = "spend" | "impressions" | "cpm" | "cpc" | "ctr" | "cpa" | "roas" | "cpl";
+export type ColumnKey = "spend" | "impressions" | "cpm" | "cpc" | "ctr" | "cpa" | "roas" | "cpl" | "cpi";
 
 export function formatMetric(key: ColumnKey, v: number | null): string {
   switch (key) {
     case "spend": return fmt.money0(v);
     case "impressions": return fmt.int(v);
-    case "cpm": case "cpc": case "cpa": case "cpl": return fmt.money(v);
+    case "cpm": case "cpc": case "cpa": case "cpl": case "cpi": return fmt.money(v);
     case "ctr": return fmt.pct(v);
     case "roas": return fmt.roas(v);
   }

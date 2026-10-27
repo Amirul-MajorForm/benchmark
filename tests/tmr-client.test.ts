@@ -36,7 +36,7 @@ function mockTmr(route: string, opts: { spec?: boolean; status?: number; rateLim
           return res.end(JSON.stringify({ success: false, error: { code: "BAD_REQUEST", message: `Unknown metric ${body.metrics[0]}` } }));
         }
         res.writeHead(opts.status ?? 200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ success: true, data: { headers: body.dimensions.concat(body.metrics), rows: [["act_1", "OUTCOME_SALES", "REACH", "2025-Jun", "MYR", 1, 2, 3, 4, 5]] } }));
+        res.end(JSON.stringify({ success: true, data: { headers: body.dimensions.concat(body.metrics), rows: [["act_1", "OUTCOME_SALES", "REACH", "2025-Jun", "MYR", 1, 2, 3, 4, 5, 6]] } }));
       });
       return;
     }
@@ -64,7 +64,7 @@ describe("TMR endpoint discovery", () => {
     servers.push(server);
     const table = await runQuery(req, cfg(await listen(server)), quiet);
     assert.equal(table.rows.length, 1);
-    assert.deepEqual(table.rows[0], ["act_1", "OUTCOME_SALES", "REACH", "2025-Jun", "MYR", 1, 2, 3, 4, 5]);
+    assert.deepEqual(table.rows[0], ["act_1", "OUTCOME_SALES", "REACH", "2025-Jun", "MYR", 1, 2, 3, 4, 5, 6]);
     assert.deepEqual(bodies.at(-1).accounts, ["fads_act_1", "fads_act_2"]);
     assert.ok(hits.includes("POST /v1/teams/team-1/query"));
     assert.equal(hits.filter((h) => h === "POST /v1/data/query").length, 2); // endpoint check + real query
@@ -121,7 +121,7 @@ describe("REST request body", () => {
     const body = buildBody(c, { connectorId: "fads", accountIds: ["act_764971328270854"], title: "t", query: mainQuery("2025-01-01", "2025-03-31") });
     assert.deepEqual(body.accounts, ["fads_act_764971328270854"]);
     assert.deepEqual(body.dimensions, ["fads_account_id", "fads_campaign_objective", "fads_optimization_goal", "fads_year_month", "fads_account_currency"]);
-    assert.deepEqual(body.metrics, ["fads_spend", "fads_impressions", "fads_clicks", "fads_link_clicks", "fads_lead"]);
+    assert.deepEqual(body.metrics, ["fads_spend", "fads_impressions", "fads_clicks", "fads_link_clicks", "fads_lead", "fads_all_app_install"]);
     assert.deepEqual(body.dateRange, { startDate: "2025-01-01", endDate: "2025-03-31" });
     assert.equal((body as any).currencyCode, undefined); // spend comes back in local currency; we convert
     assert.deepEqual((body as any).fadsOptions, { includeAllItems: true });
