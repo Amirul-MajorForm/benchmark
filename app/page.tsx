@@ -1,9 +1,10 @@
+import { AskPanel } from "@/components/AskPanel";
 import { BreakdownTable } from "@/components/BreakdownTable";
 import { CpmChart } from "@/components/CpmChart";
 import { FilterBar } from "@/components/FilterBar";
 import { SyncButton } from "@/components/SyncButton";
 import { buildView, loadFacts, loadSyncStatus, type Tile, type View } from "@/lib/benchmarks";
-import { parseFilters } from "@/lib/filters";
+import { filtersToQuery, parseFilters } from "@/lib/filters";
 import { fmt, formatMetric } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -58,6 +59,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
         </div>
       </header>
 
+      <AskPanel view={filtersToQuery(view.filters)} />
+
       {syncFailed && (
         <div className="banner" role="alert">
           <strong>Last sync failed{sync.latest?.finishedAt ? ` (${sgt(sync.latest.finishedAt)})` : ""}.</strong>{" "}
@@ -78,13 +81,13 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
 
       <section className="panel">
         <h2>CPM by month</h2>
-        <p className="muted small">Current filters across all months; the selected period is highlighted.</p>
+        <p className="muted small">Current filters across all months; the selected period is highlighted. Lines show each quarter&apos;s CPM (from the quarter&apos;s total spend and impressions).</p>
         <CpmChart points={view.chart} />
         <details className="chart-table">
           <summary>Show as table</summary>
           <div className="table-wrap">
             <table>
-              <thead><tr><th scope="col">Month</th><th scope="col" className="num">Spend</th><th scope="col" className="num">Impressions</th><th scope="col" className="num">CPM</th></tr></thead>
+              <thead><tr><th scope="col">Month</th><th scope="col" className="num">Spend</th><th scope="col" className="num">Impressions</th><th scope="col" className="num">CPM</th><th scope="col" className="num">Quarter CPM</th></tr></thead>
               <tbody>
                 {view.chart.map((p) => (
                   <tr key={p.month} className={p.selected ? "is-selected" : undefined}>
@@ -92,6 +95,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
                     <td className="num">{fmt.money0(p.spend)}</td>
                     <td className="num">{fmt.int(p.impressions)}</td>
                     <td className="num">{fmt.money(p.cpm)}</td>
+                    <td className="num">{p.quarterLabel}: {fmt.money(p.quarterCpm)}</td>
                   </tr>
                 ))}
               </tbody>

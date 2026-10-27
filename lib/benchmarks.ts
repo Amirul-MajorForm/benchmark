@@ -113,7 +113,18 @@ export type View = {
   tiles: Tile[];
   takeaway: string | null;
   empty: string | null;
-  chart: { month: string; label: string; cpm: number | null; spend: number; impressions: number; selected: boolean }[];
+  chart: {
+    month: string;
+    label: string;
+    cpm: number | null;
+    spend: number;
+    impressions: number;
+    selected: boolean;
+    /** Quarter this month belongs to, and that quarter's CPM from its summed spend and impressions. */
+    quarter: string;
+    quarterLabel: string;
+    quarterCpm: number | null;
+  }[];
   byMarket: Row[];
   byClient: Row[];
   byObjectiveGoal: Row[];
@@ -259,10 +270,21 @@ export function buildView(facts: Fact[], filters: Filters): View {
       if (!matches(f, filters, null)) continue;
       (byMonth.get(f.month) ?? byMonth.set(f.month, []).get(f.month)!).push(f);
     }
+    const quarterOf = (month: string) => `${month.slice(0, 4)}-Q${Math.ceil(Number(month.slice(5, 7)) / 3)}`;
+    const byQuarter = new Map<string, Fact[]>();
+    for (const [month, rows] of byMonth) {
+      const q = quarterOf(month);
+      byQuarter.set(q, [...(byQuarter.get(q) ?? []), ...rows]);
+    }
+    const quarterCpm = new Map([...byQuarter].map(([q, rows]) => [q, metrics(totals(rows, tracked)).cpm]));
     const last = months[months.length - 1];
     for (let key = months[0]; key <= last; key = nextMonth(key)) {
       const mt = totals(byMonth.get(key) ?? [], tracked);
+      const quarter = quarterOf(key);
       series.push({
+        quarter,
+        quarterLabel: parsePeriod(quarter)!.label,
+        quarterCpm: quarterCpm.get(quarter) ?? null,
         month: key,
         label: parsePeriod(key)!.label,
         cpm: metrics(mt).cpm,

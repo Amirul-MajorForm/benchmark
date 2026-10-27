@@ -74,6 +74,12 @@ One repo, two services, one Postgres.
 
 **Purchase value currency** (`applyCurrencyConversion`). `purchase_value_sgd = purchase_value_native × rate`, where rate is the account's Σ SGD spend ÷ Σ local spend over its Sales rows that month. Months with no spend fall back to the account's all-time rate. SGD-billed accounts come out at 1.
 
+## Ask (natural-language questions)
+
+The **Ask** bar under the header takes plain-English questions ("what's the QoQ trend?", "which market has the lowest Reach CPM this year?"). `lib/ask.ts` sends the question to Claude (`claude-opus-5-5`, medium effort, server-side refusal fallbacks on) with a short description of the data and the dashboard view the user is on. Claude gets **no raw data**: it calls a `query_benchmarks` tool (`lib/query.ts`), which runs the dashboard's own filtering and metric code, grouped by month, quarter, year, market, client, objective, goal, account or account type. Every figure in an answer is therefore computed exactly like the page. A second tool, `show_on_dashboard`, lets Claude offer an "Open this view" link.
+
+Set `ANTHROPIC_API_KEY` on the web service to turn it on. Each question costs a few cents, typically 2 to 4 tool calls. Because the app has no login, `/api/ask` allows 30 questions per visitor IP per hour and 500 characters per question.
+
 ## Metrics
 
 All ratios come from summed components over the filtered rows (`lib/metrics.ts`), never from averaged ratios:

@@ -42,7 +42,7 @@ export function CpmChart({ points }: { points: Point[] }) {
     return <p className="muted">No impressions for these filters in any month.</p>;
   }
 
-  const ticks = niceTicks(Math.max(...points.map((p) => p.cpm ?? 0)));
+  const ticks = niceTicks(Math.max(...points.map((p) => Math.max(p.cpm ?? 0, p.quarterCpm ?? 0))));
   const yMax = ticks[ticks.length - 1];
   const plotW = width - PAD.left - PAD.right;
   const plotH = HEIGHT - PAD.top - PAD.bottom;
@@ -52,12 +52,21 @@ export function CpmChart({ points }: { points: Point[] }) {
   // Month labels ("Apr '25") need ~56px each; past every other month, step in calendar quarters/halves/years.
   const labelEvery = [1, 2, 3, 6, 12].find((n) => band * n >= 56) ?? 12;
   const active = hover === null ? null : points[hover];
+  // Runs of consecutive months in the same quarter (the first and last can be partial).
+  const quarters: { key: string; label: string; cpm: number | null; from: number; to: number }[] = [];
+  points.forEach((p, i) => {
+    const last = quarters[quarters.length - 1];
+    if (last && last.key === p.quarter) last.to = i;
+    else quarters.push({ key: p.quarter, label: p.quarterLabel, cpm: p.quarterCpm, from: i, to: i });
+  });
+  const money = (v: number) => `S$${v.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   return (
     <div className="chart" ref={ref}>
       <div className="legend" aria-hidden>
         <span><i className="swatch swatch-selected" /> Selected period</span>
         <span><i className="swatch swatch-other" /> Other months</span>
+        <span><i className="swatch-line" /> Quarter CPM</span>
       </div>
       <div className="plot">
       <svg width={width} height={HEIGHT} role="img" aria-label="CPM by month" onMouseLeave={() => setHover(null)}>
@@ -96,6 +105,23 @@ export function CpmChart({ points }: { points: Point[] }) {
             </g>
           );
         })}
+        {quarters.map((q) => {
+          if (q.cpm === null) return null;
+          const x1 = PAD.left + band * q.from + 2;
+          const x2 = PAD.left + band * (q.to + 1) - 2;
+          const span = x2 - x1;
+          const label = span >= 104 ? `${q.label} · ${money(q.cpm)}` : span >= 46 ? money(q.cpm) : "";
+          return (
+            <g key={q.key} className="quarter" pointerEvents="none">
+              <line x1={x1} x2={x2} y1={y(q.cpm)} y2={y(q.cpm)} />
+              {label && (
+                <text x={(x1 + x2) / 2} y={y(q.cpm) - 6} textAnchor="middle">
+                  {label}
+                </text>
+              )}
+            </g>
+          );
+        })}
         <line className="baseline" x1={PAD.left} x2={width - PAD.right} y1={PAD.top + plotH} y2={PAD.top + plotH} />
       </svg>
       {active && hover !== null && (
@@ -110,6 +136,7 @@ export function CpmChart({ points }: { points: Point[] }) {
           <span>CPM {fmt.money(active.cpm)}</span>
           <span>Spend {fmt.money0(active.spend)}</span>
           <span>Impr. {fmt.int(active.impressions)}</span>
+          <span className="tooltip-q">{active.quarterLabel} CPM {fmt.money(active.quarterCpm)}</span>
         </div>
       )}
       </div>
