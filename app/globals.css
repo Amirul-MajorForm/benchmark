@@ -112,6 +112,7 @@ h2 { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
   background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: var(--radius);
   padding: 10px 14px; margin-bottom: 14px; font-size: 14px; overflow-wrap: anywhere;
 }
+.banner-note { background: var(--surface); border-color: var(--border); color: var(--text-2); }
 
 /* Filters */
 .filters {

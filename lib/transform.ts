@@ -13,7 +13,7 @@ export function mainQuery(startDate: string, endDate: string): TmrQuery {
   return {
     dateRange: { startDate, endDate },
     dimensions: [...DIMENSIONS, "account_currency"],
-    metrics: ["spend", "impressions", "clicks", "link_clicks", "lead", "all_app_install"],
+    metrics: ["spend", "impressions", "clicks", "link_clicks", "lead", "all_app_install", "website_fb_landing_page_views"],
     reportParams: { includeAllItems: true },
   };
 }
@@ -48,6 +48,8 @@ export type FactRow = {
   leads: number | null;
   /** Meta "App Installs (all)". */
   installs: number | null;
+  /** Meta pixel "Landing page views". */
+  landingPageViews: number | null;
   spendNative: number | null;
   purchases: number | null;
   purchaseValueNative: number | null;
@@ -94,7 +96,7 @@ function key(accountId: string, objective: string, goal: string, month: string) 
 function blankFact(platform: string, accountId: string, objective: string, goal: string, month: string): FactRow {
   return {
     platform, accountId, objective, goal, month,
-    spendSgd: 0, impressions: 0, clicks: 0, linkClicks: 0, leads: null, installs: null,
+    spendSgd: 0, impressions: 0, clicks: 0, linkClicks: 0, leads: null, installs: null, landingPageViews: null,
     spendNative: null, purchases: null, purchaseValueNative: null, purchaseValueSgd: null,
   };
 }
@@ -182,6 +184,7 @@ export function mergeChunk(
     row.linkClicks += num(r.link_clicks) ?? 0;
     row.leads = add(row.leads, num(r.lead));
     row.installs = add(row.installs, num(r.all_app_install));
+    row.landingPageViews = add(row.landingPageViews, num(r.website_fb_landing_page_views));
   }
 
   for (const r of records(purchases)) {

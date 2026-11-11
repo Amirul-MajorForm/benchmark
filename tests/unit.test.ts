@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { buildView, DEFAULT_FILTERS, filtersToQuery, parseFilters, parsePeriod, previousPeriod } from "../lib/benchmarks";
 import type { Fact } from "../lib/metrics";
-import { assertSpendInSgd, halfYearChunks, planChunks, quarterRanges, recentWindowStart } from "../lib/sync";
+import { assertSpendInSgd, halfYearChunks, notEnabledAccounts, planChunks, quarterRanges, recentWindowStart } from "../lib/sync";
 import { extractTable } from "../lib/tmr";
 import { applyCurrencyConversion, type FactRow, mainQuery, mergeChunk, monthStart, num, stripAct } from "../lib/transform";
 
@@ -28,7 +28,7 @@ describe("transform", () => {
 
   test("columns map by position, not by header label", () => {
     const q = mainQuery("2025-06-01", "2025-06-30");
-    const json = { connectorResults: [{ results: [{ data: { headers: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K"], rows: [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]] } }] }] };
+    const json = { connectorResults: [{ results: [{ data: { headers: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"], rows: [[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]] } }] }] };
     assert.deepEqual(extractTable(json, { query: q }).fields, [...q.dimensions, ...q.metrics]);
     assert.throws(() => extractTable({ connectorResults: [{ results: [{ data: { headers: ["A"], rows: [[1]] } }] }] }, { query: q }));
   });
@@ -56,7 +56,7 @@ describe("transform", () => {
   test("currency: monthly rate, then all-time fallback, then 1 for SGD accounts", () => {
     const r = (accountId: string, month: string, spendSgd: number, spendNative: number | null, value: number | null): FactRow => ({
       platform: "meta", accountId, objective: "OUTCOME_SALES", goal: "X", month, spendSgd, impressions: 0, clicks: 0,
-      linkClicks: 0, leads: null, installs: null, spendNative, purchases: 1, purchaseValueNative: value, purchaseValueSgd: null,
+      linkClicks: 0, leads: null, installs: null, landingPageViews: null, spendNative, purchases: 1, purchaseValueNative: value, purchaseValueSgd: null,
     });
     const rows = [
       r("myr", "2025-01-01", 30, 100, 1000), // rate 0.3
@@ -98,10 +98,18 @@ describe("sync planning", () => {
   });
 });
 
+describe("disabled accounts", () => {
+  test("ids are read from Two Minutes' not-enabled error only", () => {
+    const err = new Error("TMR connector error: These accounts are not enabled for this team and can't be queried: act_1696096351654353. Enable them first with enable_account");
+    assert.deepEqual(notEnabledAccounts(err), ["act_1696096351654353"]);
+    assert.deepEqual(notEnabledAccounts(new Error("TMR 400: bad field act_123")), []);
+  });
+});
+
 describe("currency check", () => {
   const row = (accountId: string, spendSgd: number, spendNative: number): FactRow => ({
     platform: "meta", accountId, objective: "OUTCOME_SALES", goal: "X", month: "2025-04-01", spendSgd, impressions: 0,
-    clicks: 0, linkClicks: 0, leads: null, installs: null, spendNative, purchases: 1, purchaseValueNative: 1, purchaseValueSgd: null,
+    clicks: 0, linkClicks: 0, leads: null, installs: null, landingPageViews: null, spendNative, purchases: 1, purchaseValueNative: 1, purchaseValueSgd: null,
   });
   const accounts = [{ accountId: "my", currency: "MYR" }, { accountId: "sg", currency: "SGD" }, { accountId: "x", currency: null }];
   const chunk = { start: "2025-01-01", end: "2025-06-30" };
@@ -135,7 +143,7 @@ describe("view", () => {
   const fact = (o: Partial<Fact>): Fact => ({
     platform: "meta", accountId: "1", accountName: "A", client: "Oatside", market: "SG", accountType: "Brand",
     objective: "OUTCOME_AWARENESS", goal: "IMPRESSIONS", month: "2025-05", spendSgd: 100, impressions: 100_000,
-    clicks: 10, linkClicks: 5, purchases: 0, purchaseValueSgd: 0, leads: 0, installs: 0, ...o,
+    clicks: 10, linkClicks: 5, purchases: 0, purchaseValueSgd: 0, leads: 0, installs: 0, landingPageViews: 0, ...o,
   });
 
   test("empty state names what did run when the goal is loosened", () => {
@@ -172,7 +180,20 @@ describe("view", () => {
     const awareness = buildView([fact({})], { ...DEFAULT_FILTERS, goal: "" });
     assert.deepEqual(awareness.tiles.map((t) => t.key), ["cpm", "cpc", "ctr", "spend", "impressions"]);
     const all = buildView(facts, { ...DEFAULT_FILTERS, objective: "", goal: "" });
-    assert.deepEqual(all.tiles.map((t) => t.key).slice(-4), ["cpa", "roas", "cpl", "cpi"]);
+    assert.deepEqual(all.tiles.map((t) => t.key).slice(-5), ["cpa", "roas", "cpl", "cpi", "cplv"]);
+  });
+
+  test("CPLV: Traffic spend ÷ landing page views; CTR stays link clicks ÷ impressions (OATSIDE, Q2 2025)", () => {
+    const facts = [
+      fact({ accountId: "oatside", objective: "OUTCOME_TRAFFIC", goal: "LANDING_PAGE_VIEWS", month: "2025-05", spendSgd: 30050.05, impressions: 5703937, linkClicks: 102884, landingPageViews: 95061 }),
+      fact({ accountId: "kr", objective: "OUTCOME_TRAFFIC", goal: "LINK_CLICKS", month: "2025-06", spendSgd: 140.51, impressions: 24649, linkClicks: 267, landingPageViews: 0 }), // no pixel: left out of CPLV
+      fact({ accountId: "oatside", objective: "OUTCOME_AWARENESS", goal: "IMPRESSIONS", month: "2025-05", spendSgd: 20959.2, landingPageViews: 3602 }), // not Traffic
+    ];
+    const traffic = buildView(facts, { ...DEFAULT_FILTERS, objective: "OUTCOME_TRAFFIC", goal: "" });
+    assert.equal(Number(traffic.metrics.cplv!.toFixed(3)), 0.316);
+    assert.equal(traffic.metrics.ctr, (102884 + 267) / (5703937 + 24649));
+    assert.deepEqual(traffic.tiles.map((t) => t.key), ["cpm", "cpc", "ctr", "spend", "impressions", "cplv"]);
+    assert.match(traffic.takeaway!, /CPLV S\$0\.32 on 95,061 landing page views\.$/);
   });
 
   test("CPI: App Promotion spend ÷ installs (BlueSG, Aug 2026)", () => {

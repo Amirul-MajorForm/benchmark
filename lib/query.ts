@@ -86,9 +86,11 @@ export function runBenchmarkQuery(facts: Fact[], input: QueryInput) {
         cpl_sgd: r(m.cpl, 2),
         installs: Math.round(t.installs),
         cpi_sgd: r(m.cpi, 2),
+        landing_page_views: Math.round(t.landingPageViews),
+        cplv_sgd: r(m.cplv, 3),
       };
     })
-    .filter((g) => (g.spend_sgd ?? 0) > 0 || g.purchases > 0 || g.leads > 0 || g.installs > 0)
+    .filter((g) => (g.spend_sgd ?? 0) > 0 || g.purchases > 0 || g.leads > 0 || g.installs > 0 || g.landing_page_views > 0)
     .sort((a, b) => (timeOrdered ? a.key.localeCompare(b.key) : (b.spend_sgd ?? 0) - (a.spend_sgd ?? 0)));
 
   const latestMonth = facts.reduce((m, f) => (f.month > m ? f.month : m), "");

@@ -71,3 +71,6 @@ alter table fact_monthly add column if not exists leads numeric;
 
 -- App installs (Meta "App Installs (all)") for CPI.
 alter table fact_monthly add column if not exists installs numeric;
+
+-- Landing page views (Meta pixel "Landing page views") for CPLV.
+alter table fact_monthly add column if not exists landing_page_views numeric;

@@ -61,6 +61,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
 
       <AskPanel view={filtersToQuery(view.filters)} />
 
+      {sync.latest?.status === "success" && sync.latest.error && (
+        <div className="banner banner-note" role="status">
+          <strong>Sync note.</strong> {sync.latest.error}
+        </div>
+      )}
+
       {syncFailed && (
         <div className="banner" role="alert">
           <strong>Last sync failed{sync.latest?.finishedAt ? ` (${sgt(sync.latest.finishedAt)})` : ""}.</strong>{" "}
@@ -120,6 +126,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rec
           <li><strong>CPAS</strong> (Collaborative Performance Advertising Solution) accounts run ads with a retailer such as Shopee or Lazada, which reports the sales back. Brand accounts are a client&apos;s own ad accounts.</li>
           <li><strong>CPL (cost per lead)</strong> = Leads-objective spend ÷ Meta&apos;s &quot;Leads (all)&quot; (instant forms, Messenger and website leads), from accounts that report any leads, at each account&apos;s default attribution. It is shown for Leads and for All objectives, and blank when there are no leads.</li>
           <li><strong>CPI (cost per install)</strong> = App Promotion spend ÷ Meta&apos;s &quot;App Installs (all)&quot;, from accounts that report any installs, at each account&apos;s default attribution. It is shown for App promotion and for All objectives, and blank when there are no installs.</li>
+          <li><strong>CPLV (cost per landing page view)</strong> = Traffic spend ÷ Meta&apos;s pixel &quot;Landing page views&quot; (a link click where the page went on to load), from accounts that report any landing page views. It is shown for Traffic and for All objectives, and blank without landing page views. CTR (link) is link clicks ÷ impressions, as everywhere on the page.</li>
           <li><strong>Purchases.</strong> CPAS accounts use the retailer&apos;s collaborative-ads purchases and value; Brand accounts use Meta&apos;s all-purchases count and value. Attribution is each account&apos;s default setting. CPA and ROAS only count Sales-objective spend from accounts that report purchases, and show blank when there are none. Recent months can shift slightly as Meta restates data.</li>
         </ul>
       </footer>

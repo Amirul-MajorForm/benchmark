@@ -27,7 +27,7 @@ const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: "query_benchmarks",
     description:
-      "Aggregate synced ad data for a filter set and return totals and ratios (CPM, CPC, CTR, CPA, ROAS, CPL, CPI) " +
+      "Aggregate synced ad data for a filter set and return totals and ratios (CPM, CPC, CTR, CPA, ROAS, CPL, CPI, CPLV) " +
       "computed from summed components. Use group_by for trends (month, quarter, year) or breakdowns " +
       "(market, client, objective, objective_goal, account, account_type). Omitted filters mean All. " +
       "Call it as many times as needed; never estimate or average numbers yourself.",
@@ -70,7 +70,7 @@ Dimensions and values in the data:
 ${goalsBy.join("\n")}
 "Unknown Optimization Goal" means Meta did not report one (Advantage+ and some legacy campaigns); call it "Not reported".
 
-Metrics: CPM = spend / impressions x 1000; CPC = spend / link clicks; CTR = link clicks / impressions; CPA and ROAS use Sales-objective spend from accounts that report purchases; CPL uses Leads-objective spend and Meta leads; CPI uses App promotion spend and app installs. Lower is better for CPM, CPC, CPA, CPL and CPI; higher is better for CTR and ROAS. Ratios are always computed from summed totals; never average ratios across rows.
+Metrics: CPM = spend / impressions x 1000; CPC = spend / link clicks; CTR = link clicks / impressions; CPA and ROAS use Sales-objective spend from accounts that report purchases; CPL uses Leads-objective spend and Meta leads; CPI uses App promotion spend and app installs; CPLV (cost per landing page view) uses Traffic spend and Meta pixel landing page views. Lower is better for CPM, CPC, CPA, CPL, CPI and CPLV; higher is better for CTR and ROAS. Ratios are always computed from summed totals; never average ratios across rows.
 
 The user is currently looking at the dashboard filtered to: ${view}. Read questions that don't name a filter ("what's the QoQ trend") as being about this view. "QoQ" means quarter on quarter, "MoM" month on month, "YoY" year on year.
 

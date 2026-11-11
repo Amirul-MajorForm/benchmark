@@ -18,8 +18,8 @@ import {
 export const SYNC_FROM = "2025-01-01";
 const PLATFORM = "meta";
 const LOCK_KEY = 4_206_031; // pg advisory lock id for the sync job
-/** Bump to make the next sync re-pull every half-year (3: spend converted to SGD by us; 4: leads for CPL; 5: installs for CPI). */
-const DATA_VERSION = "5";
+/** Bump to make the next sync re-pull every half-year (3: spend converted to SGD by us; 4: leads for CPL; 5: installs for CPI; 6: landing page views for CPLV). */
+const DATA_VERSION = "6";
 
 export type Range = { start: string; end: string };
 
@@ -90,7 +90,7 @@ export type SyncOptions = {
   fx?: FxFetcher;
 };
 
-export type SyncResult = { runId: number; status: "success" | "failed" | "skipped"; rows: number; error?: string };
+export type SyncResult = { runId: number; status: "success" | "failed" | "skipped"; rows: number; error?: string; note?: string };
 
 export async function runSync(opts: SyncOptions = {}): Promise<SyncResult> {
   const log = opts.log ?? console.log;
@@ -107,10 +107,11 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncResult> {
     );
     const runId: number = run[0].id;
     try {
-      const rows = await doSync(opts, log);
-      await pool.query("update sync_runs set finished_at = now(), status = 'success', rows = $2 where id = $1", [runId, rows]);
-      log(`sync: done, ${rows} rows written`);
-      return { runId, status: "success", rows };
+      const { rows, note } = await doSync(opts, log);
+      // A successful run can still carry a note (e.g. skipped accounts); it is stored in `error`.
+      await pool.query("update sync_runs set finished_at = now(), status = 'success', rows = $2, error = $3 where id = $1", [runId, rows, note]);
+      log(`sync: done, ${rows} rows written${note ? ` (${note})` : ""}`);
+      return { runId, status: "success", rows, ...(note ? { note } : {}) };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await pool.query("update sync_runs set finished_at = now(), status = 'failed', error = $2 where id = $1", [runId, message]);
@@ -123,7 +124,7 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncResult> {
   }
 }
 
-async function doSync(opts: SyncOptions, log: (msg: string) => void): Promise<number> {
+async function doSync(opts: SyncOptions, log: (msg: string) => void): Promise<{ rows: number; note: string | null }> {
   const pool = getPool();
   const today = opts.today ?? iso(new Date());
   const { rows: acctRows } = await pool.query(
@@ -135,7 +136,8 @@ async function doSync(opts: SyncOptions, log: (msg: string) => void): Promise<nu
   const accountIdsForQuery = accounts.map((a) => `act_${a.accountId}`);
   const types = new Map(accounts.map((a) => [a.accountId, a.type]));
   const knownCurrencies = new Map(accounts.map((a) => [a.accountId, a.currency]));
-  const query = opts.query ?? (await liveQuery(opts.cfg ?? configFromEnv(), accountIdsForQuery, log));
+  const active = new Set(accountIdsForQuery);
+  const query = opts.query ?? (await liveQuery(opts.cfg ?? configFromEnv(), active, log));
 
   // Data saved by an older sync version is re-pulled once (e.g. spend that came back unconverted).
   const { rows: ver } = await pool.query("select value from app_settings where key = 'data_version'");
@@ -172,7 +174,9 @@ async function doSync(opts: SyncOptions, log: (msg: string) => void): Promise<nu
 
     const facts = mergeChunk(main, purchases, types, PLATFORM, toSgd, currencies);
     assertSpendInSgd(facts, accounts, chunk);
-    written += await replaceChunk(chunk, facts, accounts.map((a) => a.accountId));
+    // Only accounts that were actually pulled are replaced; skipped ones keep their saved history.
+    const pulled = accounts.map((a) => a.accountId).filter((id) => active.has(`act_${id}`));
+    written += await replaceChunk(chunk, facts, pulled);
     log(`sync: ${chunk.start}..${chunk.end} -> ${facts.length} rows`);
   }
 
@@ -182,14 +186,34 @@ async function doSync(opts: SyncOptions, log: (msg: string) => void): Promise<nu
      on conflict (key) do update set value = excluded.value, updated_at = now()`,
     [DATA_VERSION],
   );
-  return written;
+  const skipped = accounts.filter((a) => !active.has(`act_${a.accountId}`)).map((a) => `act_${a.accountId}`);
+  const note = skipped.length
+    ? `Skipped ${skipped.length} account(s) that are not enabled in Two Minutes: ${skipped.join(", ")}. Their earlier data is kept; re-enable them in Two Minutes, or turn them off in the accounts table.`
+    : null;
+  return { rows: written, note };
 }
 
 /**
  * Live TMR query function. Uses the Run query path saved by an earlier sync (unless TMR_QUERY_PATH
  * is set), confirms it with one tiny request, and saves whatever path that check settles on.
  */
-async function liveQuery(cfg: TmrConfig, accountIds: string[], log: (msg: string) => void) {
+/**
+ * Account ids ("act_123") named in a Two Minutes "not enabled for this team" error, e.g. when an ad
+ * account was disconnected or disabled in Two Minutes after it was added to the mapping.
+ */
+export function notEnabledAccounts(err: unknown): string[] {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (!/not enabled/i.test(msg)) return [];
+  return [...new Set(msg.match(/act_\d+/g) ?? [])];
+}
+
+/**
+ * Live TMR query function over `active` (act_ ids). If Two Minutes refuses some accounts as not
+ * enabled, they are dropped from `active` (the caller then leaves their saved data alone) and the
+ * query is retried without them.
+ */
+async function liveQuery(cfg: TmrConfig, active: Set<string>, log: (msg: string) => void) {
+  const accountIds = [...active];
   const pool = getPool();
   if (!process.env.TMR_QUERY_PATH) {
     const { rows } = await pool.query("select value from app_settings where key = 'tmr_query_path'");
@@ -203,7 +227,18 @@ async function liveQuery(cfg: TmrConfig, accountIds: string[], log: (msg: string
     [path],
   );
   cfg = { ...cfg, queryPath: path };
-  return (title: string, q: TmrQuery) => runQuery({ connectorId: META_CONNECTOR, accountIds, title, query: q }, cfg, log);
+  return async (title: string, q: TmrQuery): Promise<TmrTable> => {
+    for (;;) {
+      try {
+        return await runQuery({ connectorId: META_CONNECTOR, accountIds: [...active], title, query: q }, cfg, log);
+      } catch (err) {
+        const refused = notEnabledAccounts(err).filter((id) => active.has(id));
+        if (!refused.length || refused.length >= active.size) throw err;
+        for (const id of refused) active.delete(id);
+        log(`sync: WARNING skipping accounts not enabled in Two Minutes: ${refused.join(", ")}`);
+      }
+    }
+  };
 }
 
 /** Record the billing currency Meta reports for each account (and keep the in-memory map current). */
@@ -329,18 +364,19 @@ export async function insertFacts(client: PoolClient, facts: FactRow[]): Promise
   const col = <K extends keyof FactRow>(k: K) => facts.map((f) => f[k]);
   await client.query(
     `insert into fact_monthly (platform, account_id, objective, goal, month, spend_sgd, impressions, clicks, link_clicks,
-       spend_native, purchases, purchase_value_native, purchase_value_sgd, leads, installs, synced_at)
+       spend_native, purchases, purchase_value_native, purchase_value_sgd, leads, installs, landing_page_views, synced_at)
      select *, now() from unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::numeric[], $7::bigint[],
-       $8::bigint[], $9::bigint[], $10::numeric[], $11::numeric[], $12::numeric[], $13::numeric[], $14::numeric[], $15::numeric[])
+       $8::bigint[], $9::bigint[], $10::numeric[], $11::numeric[], $12::numeric[], $13::numeric[], $14::numeric[], $15::numeric[], $16::numeric[])
      on conflict (platform, account_id, objective, goal, month) do update set
        spend_sgd = excluded.spend_sgd, impressions = excluded.impressions, clicks = excluded.clicks,
        link_clicks = excluded.link_clicks, spend_native = excluded.spend_native, purchases = excluded.purchases,
        purchase_value_native = excluded.purchase_value_native, purchase_value_sgd = excluded.purchase_value_sgd,
-       leads = excluded.leads, installs = excluded.installs, synced_at = now()`,
+       leads = excluded.leads, installs = excluded.installs,
+       landing_page_views = excluded.landing_page_views, synced_at = now()`,
     [
       col("platform"), col("accountId"), col("objective"), col("goal"), col("month"), col("spendSgd"),
       col("impressions"), col("clicks"), col("linkClicks"), col("spendNative"), col("purchases"),
-      col("purchaseValueNative"), col("purchaseValueSgd"), col("leads"), col("installs"),
+      col("purchaseValueNative"), col("purchaseValueSgd"), col("leads"), col("installs"), col("landingPageViews"),
     ],
   );
 }
@@ -355,7 +391,7 @@ export async function recomputeSgdValues(currencies: Map<string, string | null>)
   );
   const facts: FactRow[] = rows.map((r) => ({
     platform: PLATFORM, accountId: r.account_id, objective: r.objective, goal: r.goal, month: r.month,
-    spendSgd: Number(r.spend_sgd), impressions: 0, clicks: 0, linkClicks: 0, leads: null, installs: null,
+    spendSgd: Number(r.spend_sgd), impressions: 0, clicks: 0, linkClicks: 0, leads: null, installs: null, landingPageViews: null,
     spendNative: r.spend_native === null ? null : Number(r.spend_native), purchases: null,
     purchaseValueNative: r.purchase_value_native === null ? null : Number(r.purchase_value_native),
     purchaseValueSgd: null,

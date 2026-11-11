@@ -9,7 +9,7 @@ import { parseQueryInput, runBenchmarkQuery } from "../lib/query";
 const fact = (o: Partial<Fact>): Fact => ({
   platform: "meta", accountId: "1", accountName: "A", client: "Oatside", market: "MY", accountType: "Brand",
   objective: "OUTCOME_AWARENESS", goal: "REACH", month: "2025-04", spendSgd: 100, impressions: 100_000,
-  clicks: 10, linkClicks: 5, purchases: 0, purchaseValueSgd: 0, leads: 0, installs: 0, ...o,
+  clicks: 10, linkClicks: 5, purchases: 0, purchaseValueSgd: 0, leads: 0, installs: 0, landingPageViews: 0, ...o,
 });
 
 // Q1: 300 spend / 600k impr = CPM 0.50 (not the mean of 0.25 and 1.00). Q2: 400 / 400k = 1.00.
